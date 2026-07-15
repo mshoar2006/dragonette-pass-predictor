@@ -20,6 +20,10 @@ import passes as P
 
 _CLIMATOLOGY = P.load_climatology(Path(__file__).with_name("sites_climatology.json"))
 
+# Bounds the per-request fan-out: each AOI is a full propagation, and with
+# cloud=true each also costs Open-Meteo calls. [SESSION 2026-07-15]
+MAX_UPLOADS = 25
+
 
 def _maybe_cloud(preds: list[P.Prediction], cloud: bool, threshold: float) -> None:
     if cloud:
@@ -83,10 +87,23 @@ def _run(kmz: "UploadFile | list[UploadFile]", days: float, alt: float, tz: str,
                          polygon_name=name,
                          include_nonoperational=include_nonoperational,
                          nadir_ellipsoid=nadir_ellipsoid)
+    # /predict is unauthenticated and each AOI costs a full propagation, so bound
+    # the fan-out. A KMZ with hundreds of polygons plus cloud=true would otherwise
+    # be hours of work and hundreds of Open-Meteo calls in one request.
+    # [SESSION 2026-07-15]
+    if len(uploads) > MAX_UPLOADS:
+        raise HTTPException(422, f"Too many files: {len(uploads)}; limit is {MAX_UPLOADS}")
+
     preds: list[P.Prediction] = []
     try:
         for up in uploads:
-            data = up.file.read()
+            # Read bounded: the limit lives in passes.MAX_UPLOAD_BYTES so the CLI
+            # and the API cannot disagree about what is acceptable.
+            data = up.file.read(P.MAX_UPLOAD_BYTES + 1)
+            if len(data) > P.MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    413, f"{up.filename or 'upload'} exceeds "
+                         f"{P.MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
             if not data:
                 raise HTTPException(422, f"Empty upload: {up.filename or '?'}")
             if all_polygons:

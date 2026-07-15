@@ -144,14 +144,50 @@ class AmbiguousPolygonError(ValueError):
             "Polygons: " + ", ".join(names))
 
 
+# A KMZ is an emailed file from a partner — untrusted, and `/predict` is
+# unauthenticated. Without a bound, `zf.read()` decompresses whatever the zip
+# claims: a ~50 KB archive whose inner doc.kml inflates to gigabytes (trivial on
+# repetitive XML, ratios ~1000:1) walks the worker straight into an OOM on a
+# single request. Bound the declared size, the expansion ratio, and the member
+# count. [SESSION 2026-07-15]
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024        # a real 100 km2 KMZ is a few KB
+MAX_KML_BYTES = 50 * 1024 * 1024           # generous for a hand-drawn mega-polygon
+MAX_COMPRESSION_RATIO = 200.0
+MAX_ZIP_MEMBERS = 64
+
+
 def _kml_text(data: bytes) -> str:
-    """Return the KML text from a KMZ (zip) or a bare KML byte string."""
+    """Return the KML text from a KMZ (zip) or a bare KML byte string.
+
+    Raises ValueError on anything that looks like a decompression bomb rather
+    than expanding it. Never calls extract()/extractall(), so there is no
+    zip-slip surface — member names only ever select, never become paths.
+    """
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ValueError(
+            f"KMZ/KML is {len(data) / 1e6:.1f} MB; limit is "
+            f"{MAX_UPLOAD_BYTES / 1e6:.0f} MB. A real AOI polygon is a few KB.")
     if data[:2] == b"PK":  # zip => KMZ
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            kml_names = [n for n in zf.namelist() if n.lower().endswith(".kml")]
-            if not kml_names:
+            infos = zf.infolist()
+            if len(infos) > MAX_ZIP_MEMBERS:
+                raise ValueError(
+                    f"KMZ contains {len(infos)} members; limit is {MAX_ZIP_MEMBERS}.")
+            kml_infos = [i for i in infos if i.filename.lower().endswith(".kml")]
+            if not kml_infos:
                 raise ValueError("KMZ contains no .kml file")
-            return zf.read(kml_names[0]).decode("utf-8", errors="replace")
+            info = kml_infos[0]
+            if info.file_size > MAX_KML_BYTES:
+                raise ValueError(
+                    f"KMZ inner {info.filename!r} declares {info.file_size / 1e6:.1f} MB; "
+                    f"limit is {MAX_KML_BYTES / 1e6:.0f} MB (decompression bomb?)")
+            if (info.compress_size > 0
+                    and info.file_size / info.compress_size > MAX_COMPRESSION_RATIO):
+                raise ValueError(
+                    f"KMZ inner {info.filename!r} expands "
+                    f"{info.file_size / info.compress_size:.0f}x (limit "
+                    f"{MAX_COMPRESSION_RATIO:.0f}x) — refusing to decompress it.")
+            return zf.read(info).decode("utf-8", errors="replace")
     return data.decode("utf-8", errors="replace")
 
 
@@ -256,22 +292,61 @@ def parse_kmz(data: bytes, terrain_alt_m: float = 0.0,
     return AOI(chosen_name, verts, clon, clat, terrain_alt_m)
 
 
+def _wrap180(lon: float) -> float:
+    """Wrap a longitude to (-180, 180]."""
+    return (lon + 180.0) % 360.0 - 180.0
+
+
 def _shoelace_centroid(verts: list[tuple[float, float]]) -> tuple[float, float]:
-    """Planar shoelace centroid in lon/lat — adequate at ~100 km^2 scale."""
-    a = cx = cy = 0.0
+    """Planar shoelace centroid of a (lon, lat) ring. Returns (lon, lat).
+
+    Two corrections over the naive form [SESSION 2026-07-15]:
+
+    1. **Longitudes are unwrapped onto a branch centred on the first vertex**
+       before summing, and re-wrapped after. Raw lon/lat made a ring straddling
+       the antimeridian average to the *opposite side of the planet*: a
+       Fiji-scale AOI spanning 179.95°E → 179.95°W returned lon ≈ 0.0 — an error
+       of ~19,000 km, silently, with every downstream pass, sun angle and cloud
+       lookup then computed for a point in the Atlantic.
+
+    2. **Coordinates are shifted to a local origin** before the sum. The cross
+       terms are ~lon·lat (≈ 4,100 at these sites) while the differences carrying
+       the signal are ~1e-4, so the subtraction destroyed ~8 significant digits.
+       Measured before the fix, at Site A: a 10 km AOI was fine (0.0 m), but a
+       197 m AOI erred 0.6 m, a **20 m AOI erred 53 m — larger than the AOI
+       itself, and 10× the 5.3 m GSD** — and a 2 m AOI erred 9.3 km. The old
+       degeneracy guard (`|a| < 1e-12` in deg²) only rescued polygons *below* the
+       danger zone, not within it. Shifting restores full precision at every
+       scale.
+
+    The degeneracy test is now relative to the ring's own extent, so it means
+    "collinear/zero-area" rather than "smaller than an arbitrary absolute size".
+    """
     n = len(verts)
+    if n == 0:
+        raise ValueError("Polygon has no vertices")
+
+    lon0 = verts[0][0]
+    xs = [lon0 + _wrap180(x - lon0) for x, _ in verts]      # unwrap onto one branch
+    ys = [y for _, y in verts]
+    ox, oy = xs[0], ys[0]                                   # shift to a local origin
+    xs = [x - ox for x in xs]
+    ys = [y - oy for y in ys]
+
+    a = cx = cy = 0.0
     for i in range(n):
-        x0, y0 = verts[i]
-        x1, y1 = verts[(i + 1) % n]
+        x0, y0 = xs[i], ys[i]
+        x1, y1 = xs[(i + 1) % n], ys[(i + 1) % n]
         cross = x0 * y1 - x1 * y0
         a += cross
         cx += (x0 + x1) * cross
         cy += (y0 + y1) * cross
-    if abs(a) < 1e-12:  # degenerate; fall back to vertex mean
-        xs, ys = zip(*verts)
-        return sum(xs) / n, sum(ys) / n
+
+    scale = max(max(xs) - min(xs), max(ys) - min(ys))
+    if scale <= 0.0 or abs(a) < 1e-12 * scale * scale:      # collinear / zero-area
+        return _wrap180(sum(xs) / n + ox), sum(ys) / n + oy
     a *= 0.5
-    return cx / (6 * a), cy / (6 * a)
+    return _wrap180(cx / (6 * a) + ox), cy / (6 * a) + oy
 
 
 # --------------------------------------------------------------------------
@@ -1545,10 +1620,14 @@ def build_timeline_figure(preds: "list[Prediction] | Prediction",
     passes are hatched. When a single AOI carries cloud data, a daily cloud
     strip is drawn above (clear / partly / cloudy / unknown-beyond-horizon).
     Every bar carries gid 'SAT:op|nonop:band' for artist-level tests."""
-    import matplotlib
-    matplotlib.use("Agg")
+    # Object-oriented API, not pyplot. `/timeline.png` is a sync def, so FastAPI
+    # runs it in its threadpool — and plt.figure()/plt.close() mutate pyplot's
+    # global Gcf figure registry, which concurrent requests race on (interleaved
+    # or corrupted PNGs, or leaked figures growing without bound). Figure() owns
+    # nothing global, so this is thread-safe by construction rather than by luck.
+    # [SESSION 2026-07-15]
     import matplotlib.dates as mdates
-    import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure
 
     if isinstance(preds, Prediction):
         preds = [preds]
@@ -1562,7 +1641,7 @@ def build_timeline_figure(preds: "list[Prediction] | Prediction",
     cloud_daily = preds[0].cloud_daily if len(preds) == 1 else {}
     strip = bool(cloud_daily)
 
-    fig = plt.figure(figsize=(11.5, 0.62 * len(sats) + (2.3 if strip else 1.7)))
+    fig = Figure(figsize=(11.5, 0.62 * len(sats) + (2.3 if strip else 1.7)))
     if strip:
         gs = fig.add_gridspec(2, 1, height_ratios=[0.6, len(sats)], hspace=0.12)
         cax = fig.add_subplot(gs[0]); ax = fig.add_subplot(gs[1], sharex=cax)
@@ -1644,12 +1723,16 @@ def build_timeline_figure(preds: "list[Prediction] | Prediction",
 def render_timeline_png(preds: "list[Prediction] | Prediction",
                         tz_name: str = "Australia/Brisbane",
                         dpi: int = 110) -> bytes:
-    """Render the timeline (R4) to PNG bytes; usable in reports and endpoints."""
-    import matplotlib.pyplot as plt
+    """Render the timeline (R4) to PNG bytes; usable in reports and endpoints.
+
+    Thread-safe: the figure is an OO `Figure` with its own Agg canvas and is never
+    registered with pyplot, so there is nothing global to close and nothing for
+    concurrent requests to race on. [SESSION 2026-07-15]"""
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
     fig, _ = build_timeline_figure(preds, tz_name)
+    FigureCanvasAgg(fig)                      # attach a canvas; no pyplot involved
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
     return buf.getvalue()
 
 

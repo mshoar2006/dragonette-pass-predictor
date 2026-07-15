@@ -3,6 +3,7 @@
 Each test here corresponds to a defect that produced a *confidently wrong* result
 or an unhandled traceback rather than an error. Fully offline. [SESSION 2026-07-15]
 """
+import math
 import subprocess
 import sys
 import time
@@ -182,6 +183,72 @@ def test_empty_tle_set_returns_an_empty_prediction_not_a_crash():
     assert P.prediction_json([pred])["passes"] == []
 
 
+# --------------------------------------------------------------- centroid geometry
+def _square(clat, clon, half):
+    return [(clon - half, clat - half), (clon + half, clat - half),
+            (clon + half, clat + half), (clon - half, clat + half)]
+
+
+def test_antimeridian_polygon_does_not_average_to_the_far_side_of_the_planet():
+    """A ring straddling +/-180 used to return lon ~ 0.0 — off by ~19,000 km, in
+    the wrong ocean, silently. Every pass, sun angle and cloud lookup was then
+    computed for that point. [SESSION 2026-07-15]"""
+    lon, lat = P._shoelace_centroid([(179.95, -16.9), (-179.95, -16.9),
+                                     (-179.95, -17.0), (179.95, -17.0)])
+    assert abs(lon) > 179.9, f"centroid must sit on the antimeridian, got {lon}"
+    assert -17.0 <= lat <= -16.9
+
+
+def test_antimeridian_polygon_survives_the_whole_kmz_path():
+    import io as _io, zipfile as _zf
+    coords = " ".join(f"{x},{y},0" for x, y in
+                      [(179.95, -16.9), (-179.95, -16.9), (-179.95, -17.0),
+                       (179.95, -17.0), (179.95, -16.9)])
+    kml = ('<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark>'
+           f'<name>FIJI</name><Polygon><outerBoundaryIs><LinearRing>'
+           f'<coordinates>{coords}</coordinates>'
+           '</LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>')
+    buf = _io.BytesIO()
+    with _zf.ZipFile(buf, "w") as z:
+        z.writestr("doc.kml", kml)
+    aoi = P.parse_kmz(buf.getvalue(), 0.0)
+    assert abs(aoi.centroid_lon) > 179.9, aoi.centroid_lon
+
+
+@pytest.mark.parametrize("half,label", [
+    (0.045, "10 km"), (0.001, "200 m"), (0.0001, "20 m"),
+    (0.00001, "2 m"), (0.000001, "0.2 m"),
+])
+def test_small_polygon_centroid_stays_precise(half, label):
+    """The shoelace cross terms are ~lon*lat (~4100 here) while the signal is
+    ~1e-4, so the naive form catastrophically cancelled: a 20 m AOI erred 53 m —
+    larger than the AOI, 10x the 5.3 m GSD — and a 2 m AOI erred 9.3 km. CLAUDE.md
+    puts real AOIs at 2.5 ha and up, but a single-plot trial site is plausible.
+    [SESSION 2026-07-15]"""
+    clat, clon = -20.0, 150.0
+    lon, lat = P._shoelace_centroid(_square(clat, clon, half))
+    err = math.hypot((lon - clon) * 111320 * math.cos(math.radians(clat)),
+                     (lat - clat) * 110540)
+    assert err < 1.0, f"{label} AOI: centroid off by {err:.2f} m"
+
+
+def test_degenerate_ring_falls_back_to_the_vertex_mean():
+    """Collinear vertices have no area; the guard must catch that rather than
+    divide by ~0. It is now relative to the ring's own extent, so it means
+    'zero-area', not 'smaller than an arbitrary absolute size'."""
+    lon, lat = P._shoelace_centroid([(151.0, -27.0), (151.1, -27.0), (151.2, -27.0)])
+    assert lat == pytest.approx(-27.0)
+    assert lon == pytest.approx(151.1, abs=1e-6)
+
+
+def test_real_aoi_centroids_are_unchanged_by_the_precision_fix():
+    """Guards the fix itself: it must not move the AOIs the validated baseline and
+    the Wyvern comparison are computed from."""
+    aoi = P.parse_kmz(SITEA_KMZ, 400.0, polygon_name="SITEA_100sqkm")
+    assert aoi.centroid_lat == pytest.approx(-20.0, abs=1e-6)
+    assert aoi.centroid_lon == pytest.approx(150.0, abs=1e-6)
+
+
 # ------------------------------------------------------------ manoeuvre detection
 # The fixture PAIR is the point: DRAG04 manoeuvred between these two real element
 # sets (semi-major +113 m over ~1.1 d while every sibling decayed 6-18 m), so they
@@ -314,3 +381,57 @@ def test_cache_write_is_atomic_and_leaves_no_temp_files(tmp_path):
     assert cache.is_file()
     assert not list(tmp_path.glob("*.tmp")), "temp file must be replaced, not left behind"
     assert P._load_cache(cache) is not None
+
+
+# ---------------------------------------------- fetch_real_data validation verdict
+def test_fetch_real_data_validation_can_actually_fail():
+    """It printed a prose verdict ("PASS if ...") and exited 0 regardless — so it
+    reported success whether every sign had flipped or nothing matched. CLAUDE.md
+    gates the project's grade on this script; validation that cannot fail is not
+    validation. [SESSION 2026-07-15]"""
+    sys.path.insert(0, str(ROOT))
+    import fetch_real_data as F
+
+    tles = P._parse_3le_file((FIX / "tles_real_20260714.txt").read_text(), P.SATELLITES)
+    good = P.predict(SITEA_KMZ, days=14.0, start_utc=START, terrain_alt_m=400.0,
+                     polygon_name="SITEA_100sqkm", tles=tles)
+    _, passed = F.validate(good, record=False)
+    assert passed, "a correct run against the reference must PASS"
+
+    # A real regression must flip the verdict, not just the prose.
+    broken = P.predict(SITEA_KMZ, days=14.0, start_utc=START, terrain_alt_m=400.0,
+                       polygon_name="SITEA_100sqkm", tles=tles)
+    for p in broken.passes + broken.marginal + broken.nonoperational:
+        p.off_nadir_deg = -p.off_nadir_deg          # the exact bug of 2026-07-14
+    _, passed_flipped = F.validate(broken, record=False)
+    assert not passed_flipped, "an inverted sign column must FAIL the validation"
+
+
+def test_fetch_real_data_validation_counts_drag05():
+    """`got` omitted the nonoperational bucket, so DRAG05's two reference rows
+    reported NO MATCH on every run — the old 'matched 11/13' was that, not a real
+    miss."""
+    sys.path.insert(0, str(ROOT))
+    import fetch_real_data as F
+
+    tles = P._parse_3le_file((FIX / "tles_real_20260714.txt").read_text(), P.SATELLITES)
+    pred = P.predict(SITEA_KMZ, days=14.0, start_utc=START, terrain_alt_m=400.0,
+                     polygon_name="SITEA_100sqkm", tles=tles)
+    block, passed = F.validate(pred, record=False)
+    ref_n = len(F.load_reference())
+    assert f"matched {ref_n}/{ref_n}" in block, block[-600:]
+    assert "NO MATCH" not in block
+
+
+def test_fetch_real_data_does_not_write_validation_md_by_default(tmp_path):
+    """Every run used to append, so re-running to debug polluted the provenance
+    record VALIDATION.md is supposed to be."""
+    sys.path.insert(0, str(ROOT))
+    import fetch_real_data as F
+
+    before = (ROOT / "VALIDATION.md").read_bytes()
+    tles = P._parse_3le_file((FIX / "tles_real_20260714.txt").read_text(), P.SATELLITES)
+    pred = P.predict(SITEA_KMZ, days=14.0, start_utc=START, terrain_alt_m=400.0,
+                     polygon_name="SITEA_100sqkm", tles=tles)
+    F.validate(pred, record=False)
+    assert (ROOT / "VALIDATION.md").read_bytes() == before

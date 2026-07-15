@@ -136,7 +136,7 @@ Skill decays with lead time, so the tier is keyed off lead time from window star
 One forecast call + one ensemble call **per AOI** (batched). Degrades gracefully:
 on any failure the cloud columns read `n/a`, a warning is added, and the
 prediction never blocks. Attribution "Weather data by Open-Meteo.com" (CC BY 4.0)
-is written to the Method sheet. Tier-3 climatology is a `[PLACEHOLDER]` (`n/a`)
+is written to the Method sheet. Tier-3 climatology is now real [VERIFIED 2026-07-15]
 until the VG26003 clr% values are supplied.
 
 ## Live validation (blocking release)

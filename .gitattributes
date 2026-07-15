@@ -1,0 +1,17 @@
+# Normalise text line endings in the repo, checkout native.
+* text=auto
+
+# Binary fixtures — MUST never be line-ending converted. These are not just
+# assets: regression_baseline_*.xlsx is the artifact tests/test_regression_baseline.py
+# compares against to pin CLAUDE.md hard constraint 1 (the off-nadir sign), and
+# the .kmz files are the AOI inputs the whole suite runs on. A CRLF rewrite would
+# corrupt the zip containers and silently break validation.
+*.kmz  binary
+*.kml  binary
+*.xlsx binary
+*.zip  binary
+*.png  binary
+
+# TLE fixtures are fixed-column text — keep them LF so column offsets used by
+# _parse_3le_file (NORAD at cols 3-7) are stable across platforms.
+*.txt text eol=lf

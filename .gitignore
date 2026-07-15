@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.venv/
+venv/
+
+# Generated prediction outputs — regenerate with fetch_real_data.py or src/cli.py.
+# NOTE: fixtures/ is deliberately NOT ignored. It holds the regression baseline,
+# the real Celestrak TLEs and the captured STAC/Open-Meteo payloads that
+# tests/test_regression_baseline.py and tests/test_geometry_validation.py depend
+# on — without them the suite cannot validate anything offline.
+dragonette_bootstrap/output/
+
+# Atomic-write temp files from the TLE cache (_write_cache_atomic)
+*.tmp
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini

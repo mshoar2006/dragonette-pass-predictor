@@ -182,6 +182,88 @@ def test_empty_tle_set_returns_an_empty_prediction_not_a_crash():
     assert P.prediction_json([pred])["passes"] == []
 
 
+# ------------------------------------------------------------ manoeuvre detection
+# The fixture PAIR is the point: DRAG04 manoeuvred between these two real element
+# sets (semi-major +113 m over ~1.1 d while every sibling decayed 6-18 m), so they
+# pin the detector against an actual burn rather than a synthetic one.
+# [VERIFIED 2026-07-15 — see IMPROVEMENTS.md A4-bis.]
+OLD_TLES = str(FIX / "tles_real_20260714.txt")
+NEW_TLES = str(FIX / "tles_real_20260715.txt")
+
+
+def _pair():
+    return (P._parse_3le_file(Path(OLD_TLES).read_text(), P.SATELLITES),
+            P._parse_3le_file(Path(NEW_TLES).read_text(), P.SATELLITES))
+
+
+def test_orbit_change_flags_the_real_drag04_burn():
+    old, new = _pair()
+    ch = P.orbit_change(old["DRAG04"], new["DRAG04"])
+    assert ch["manoeuvred"] is True
+    assert ch["da_km"] > 0.05, "DRAG04 raised its orbit; drag cannot do that"
+    # the actionable consequence: the superseded set was ~20 km / ~2.6 s out
+    assert ch["pos_err_km"] > 10.0
+    assert ch["along_track_s"] > 1.0
+
+
+def test_orbit_change_does_not_flag_natural_decay():
+    """The four non-manoeuvring satellites must stay silent, or the warning is
+    noise and gets ignored."""
+    old, new = _pair()
+    for name in ("DRAG01", "DRAG02", "DRAG03", "DRAG05"):
+        ch = P.orbit_change(old[name], new[name])
+        assert ch["manoeuvred"] is False, f"{name} false-positived: {ch}"
+        assert ch["da_km"] < 0, f"{name} should be decaying, not rising: {ch}"
+        assert ch["pos_err_km"] < 2.0, f"{name} free-flight error: {ch}"
+
+
+def test_orbit_change_rejects_unusable_pairs():
+    old, new = _pair()
+    assert P.orbit_change(new["DRAG01"], old["DRAG01"]) is None    # reversed
+    assert P.orbit_change(old["DRAG01"], old["DRAG01"]) is None    # same epoch
+
+
+def test_fetch_tles_warns_when_a_satellite_has_manoeuvred(tmp_path):
+    """End-to-end: the cache is the only orbit history the tool has, so the
+    comparison must happen at fetch time, before the old set is overwritten."""
+    old, new = _pair()
+    cache = tmp_path / "tles.json"
+    P._save_cache(cache, old)
+    blob = P._load_cache(cache)
+    blob["_ts"] = time.time() - 99 * 3600          # force stale -> triggers a fetch
+    P._write_cache_atomic(cache, blob)
+
+    def fake_get(url):
+        catnr = int(url.split("CATNR=")[1].split("&")[0])
+        t = next(x for x in new.values() if x.catnr == catnr)
+        return f"{t.name}\n{t.line1}\n{t.line2}\n"
+
+    tles, warns = P.fetch_tles(satellites=P.SATELLITES, cache_path=cache,
+                               http_get=fake_get)
+    assert set(tles) == set(P.SATELLITES)
+    man = [w for w in warns if "MANOEUVRE" in w]
+    assert len(man) == 1, f"expected exactly one manoeuvre warning, got {warns}"
+    assert "DRAG04" in man[0]
+    assert "113 m" in man[0] and "19.9 km" in man[0]
+    # and it must say why the age-based sigma cannot be trusted for this satellite
+    assert "σ" in man[0] or "sigma" in man[0].lower()
+
+
+def test_no_manoeuvre_warning_without_history(tmp_path):
+    """A cold cache has nothing to compare against — it must stay quiet rather
+    than guess."""
+    _, new = _pair()
+
+    def fake_get(url):
+        catnr = int(url.split("CATNR=")[1].split("&")[0])
+        t = next(x for x in new.values() if x.catnr == catnr)
+        return f"{t.name}\n{t.line1}\n{t.line2}\n"
+
+    _, warns = P.fetch_tles(satellites=P.SATELLITES,
+                            cache_path=tmp_path / "cold.json", http_get=fake_get)
+    assert not [w for w in warns if "MANOEUVRE" in w]
+
+
 # ------------------------------------------------- Celestrak politeness / stampede
 def test_celestrak_fetch_sends_a_user_agent():
     """Celestrak blocks generic scripted agents; a 403 would silently degrade

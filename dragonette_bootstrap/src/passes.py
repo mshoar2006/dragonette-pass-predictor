@@ -72,6 +72,11 @@ CELESTRAK_UA = {"User-Agent": "dragonette-predictor/2.0 (research)"}
 FETCH_RETRY_COOLDOWN_S = 15 * 60.0
 # Serialises the fetch+cache-write so N concurrent requests cause 1 fetch, not N.
 _FETCH_LOCK = threading.Lock()
+# A rise in semi-major axis faster than this ⇒ thrust, not drag. Drag can only
+# *lower* a, so any sustained rise is unambiguous; the threshold only has to clear
+# fit noise. [VERIFIED 2026-07-15 over ~1 d of real Celestrak elements: DRAG01/02/
+# 03/05 decayed 6-18 m/day, DRAG04 rose 100 m/day. 30 m/day sits clear of both.]
+MANOEUVRE_DA_RISE_KM_PER_DAY = 0.03
 
 # Off-nadir sign convention. [REPORT — corrected 2026-07-14 against Wyvern's
 # actual sheet "Wyvern Simulated Passes … June 24–July 24 2026", Wyvern]
@@ -602,6 +607,86 @@ class TLE:
         return jd_to_dt(sat.jdsatepoch, sat.jdsatepochF)
 
 
+_MU_EARTH = 398600.4418          # km^3 s^-2
+
+
+def _semi_major_km(sat: Satrec) -> float:
+    """Semi-major axis from the SGP4 mean motion (Kozai), km."""
+    n = sat.no_kozai / 60.0                       # rad/min -> rad/s
+    return (_MU_EARTH / (n * n)) ** (1.0 / 3.0)
+
+
+def orbit_change(old: TLE, new: TLE) -> dict | None:
+    """Quantify how an object's orbit changed between two element sets.
+
+    Returns None if the pair is unusable (same/reversed epochs, bad elements).
+
+    `manoeuvred` keys off a **rise** in semi-major axis, which is unambiguous:
+    atmospheric drag can only lower it, so thrust is the sole explanation. That
+    makes the test robust without modelling drag, which varies with altitude and
+    solar activity. [SESSION 2026-07-15 — measured over ~1 day of real Celestrak
+    elements: DRAG01/02/03/05 all decayed 6-18 m, DRAG04 rose 113 m.]
+
+    `pos_err_km` / `along_track_s` are the actionable numbers: how badly the OLD
+    set would have predicted the NEW set's own epoch — i.e. the error a user
+    running on `gap_days`-old elements would actually have suffered.
+    """
+    gap = (new.epoch_utc - old.epoch_utc).total_seconds() / 86400.0
+    if gap <= 0:
+        return None
+    so = Satrec.twoline2rv(old.line1, old.line2)
+    sn = Satrec.twoline2rv(new.line1, new.line2)
+    if getattr(so, "error", 0) or getattr(sn, "error", 0):
+        return None
+    da = _semi_major_km(sn) - _semi_major_km(so)
+    jd, fr = dt_to_jd(new.epoch_utc)
+    eo, ro, _ = so.sgp4(jd, fr)
+    en, rn, vn = sn.sgp4(jd, fr)
+    if eo != 0 or en != 0:
+        return None
+    ro, rn, vn = np.asarray(ro), np.asarray(rn), np.asarray(vn)
+    d = ro - rn
+    along_km = float(np.dot(d, vn / np.linalg.norm(vn)))
+    return dict(gap_days=round(gap, 2),
+                da_km=round(da, 4),
+                da_km_per_day=round(da / gap, 4),
+                pos_err_km=round(float(np.linalg.norm(d)), 3),
+                along_track_s=round(abs(along_km) / 7.5, 2),
+                manoeuvred=bool(da / gap > MANOEUVRE_DA_RISE_KM_PER_DAY))
+
+
+def _manoeuvre_warning(name: str, ch: dict) -> str:
+    return (
+        f"{name}: MANOEUVRE detected — semi-major axis rose {ch['da_km'] * 1000:.0f} m "
+        f"over {ch['gap_days']:.2f} d between the last two element sets (drag can only "
+        f"lower it, so this is thrust). The superseded set mispredicted by "
+        f"{ch['pos_err_km']:.1f} km ({ch['along_track_s']:.2f} s along-track). This "
+        f"satellite is actively manoeuvring: the TLE-age timing σ assumes free flight "
+        f"and will understate error if it burns again after the current epoch. "
+        f"Re-fetch immediately before committing a tasking order.")
+
+
+def _manoeuvre_warnings(cache: dict | None, fresh: dict[str, TLE]) -> list[str]:
+    """One warning per satellite whose orbit changed by thrust since the cache.
+
+    Never raises: a manoeuvre check failing must not break TLE acquisition.
+    """
+    if not cache:
+        return []
+    out: list[str] = []
+    for name, new in fresh.items():
+        try:
+            prev = _cache_to_tles(cache, {name: new.catnr}).get(name)
+            if prev is None:
+                continue
+            ch = orbit_change(prev, new)
+            if ch and ch["manoeuvred"]:
+                out.append(_manoeuvre_warning(name, ch))
+        except Exception:
+            continue
+    return out
+
+
 def fetch_tles(satellites: dict[str, int] = SATELLITES,
                cache_path: Path = DEFAULT_CACHE,
                cache_ttl_hours: float = 8.0,
@@ -663,6 +748,11 @@ def fetch_tles(satellites: dict[str, int] = SATELLITES,
                     raise ValueError(
                         f"Celestrak returned no TLE for {name} ({catnr}): {text[:80]!r}")
                 out[name] = TLE(name, catnr, l1, l2, fetched_at)
+            # Compare each fresh set against the one it is about to replace: the
+            # cache is the only orbit history we have, so this is the last moment
+            # the comparison is possible. [SESSION 2026-07-15 — this is how the
+            # DRAG04 burn was found; see IMPROVEMENTS.md A4-bis.]
+            warnings.extend(_manoeuvre_warnings(cache, out))
             _save_cache(cache_path, out)
             return out, warnings
         except Exception as exc:  # network down, rate limited, etc.

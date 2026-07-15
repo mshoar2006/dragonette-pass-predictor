@@ -70,8 +70,10 @@ def _run(kmz: "UploadFile | list[UploadFile]", days: float, alt: float, tz: str,
          all_polygons: bool = False,
          include_nonoperational: bool = True,
          nadir_ellipsoid: bool = False,
-         start: str | None = None) -> list[P.Prediction]:
+         start: str | None = None,
+         sensor: str | None = None) -> list[P.Prediction]:
     try:
+        profile = P.get_profile(sensor)
         P.validate_window(days)
         ZoneInfo(tz)                     # fail fast, not after minutes of propagation
         start_utc = P.parse_start_utc(start)
@@ -83,6 +85,7 @@ def _run(kmz: "UploadFile | list[UploadFile]", days: float, alt: float, tz: str,
 
     def one(data: bytes, name: str | None) -> P.Prediction:
         return P.predict(data, days=days, start_utc=start_utc, terrain_alt_m=alt,
+                         profile=profile,
                          max_off_nadir_deg=max_off_nadir, min_sun_elev_deg=min_sun,
                          polygon_name=name,
                          include_nonoperational=include_nonoperational,
@@ -138,10 +141,13 @@ def predict_xlsx(
     start: str | None = Form(None, description="Window start, ISO-8601. "
                              "An offset is converted to UTC; naive is taken as UTC. "
                              "Default: now."),
+    sensor: str = Form("dragonette", description="dragonette | landsat | sentinel2. "
+                       "Landsat/Sentinel-2 are fixed nadir push-brooms: predicted "
+                       "acquisitions on their own cycle, NOT taskable."),
 ):
     """Spreadsheet download — the sheet to circulate to research project teams."""
     preds = _run(kmz, days, alt, tz, max_off_nadir, min_sun, polygon, all_polygons,
-                 include_nonoperational, start=start)
+                 include_nonoperational, start=start, sensor=sensor)
     _maybe_cloud(preds, cloud, cloud_threshold)
     try:
         blob = P.write_xlsx_multi(preds, tz_name=tz)
@@ -173,10 +179,13 @@ def predict_json(
     start: str | None = Form(None, description="Window start, ISO-8601. "
                              "An offset is converted to UTC; naive is taken as UTC. "
                              "Default: now."),
+    sensor: str = Form("dragonette", description="dragonette | landsat | sentinel2. "
+                       "Landsat/Sentinel-2 are fixed nadir push-brooms: predicted "
+                       "acquisitions on their own cycle, NOT taskable."),
 ) -> dict:
     """Same prediction as /predict, machine-readable (DT contract, R9)."""
     preds = _run(kmz, days, alt, tz, max_off_nadir, min_sun, polygon, all_polygons,
-                 include_nonoperational, start=start)
+                 include_nonoperational, start=start, sensor=sensor)
     _maybe_cloud(preds, cloud, cloud_threshold)
     return P.prediction_json(preds)
 
@@ -197,10 +206,13 @@ def timeline_png(
     start: str | None = Form(None, description="Window start, ISO-8601. "
                              "An offset is converted to UTC; naive is taken as UTC. "
                              "Default: now."),
+    sensor: str = Form("dragonette", description="dragonette | landsat | sentinel2. "
+                       "Landsat/Sentinel-2 are fixed nadir push-brooms: predicted "
+                       "acquisitions on their own cycle, NOT taskable."),
 ):
     """Gantt-style timeline PNG (R4) — same params as /predict; drop into reports."""
     preds = _run(kmz, days, alt, tz, max_off_nadir, min_sun, polygon, all_polygons,
-                 include_nonoperational, start=start)
+                 include_nonoperational, start=start, sensor=sensor)
     _maybe_cloud(preds, cloud, cloud_threshold)
     try:
         png = P.render_timeline_png(preds, tz_name=tz)

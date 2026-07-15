@@ -24,8 +24,15 @@ def main() -> int:
     ap.add_argument("--alt", type=float, default=0.0, help="Terrain height, metres (default 0)")
     ap.add_argument("--tz", default="Australia/Brisbane",
                     help="IANA timezone for the local-time column")
-    ap.add_argument("--max-off-nadir", type=float, default=20.0)
-    ap.add_argument("--min-sun", type=float, default=20.0)
+    ap.add_argument("--max-off-nadir", type=float, default=None,
+                    help="Override the sensor's access envelope (default: per --sensor)")
+    ap.add_argument("--min-sun", type=float, default=None,
+                    help="Override the sensor's sun floor (default: per --sensor)")
+    ap.add_argument("--sensor", default="dragonette",
+                    help="Sensor profile: dragonette (default, taskable), "
+                         "landsat (8/9, fixed nadir), sentinel2 (A/B/C, fixed nadir). "
+                         "Landsat/Sentinel-2 are NOT taskable — these are predicted "
+                         "acquisitions on their own cycle, not opportunities you can book.")
     ap.add_argument("--polygon", default=None, help="Polygon name filter inside the KMZ")
     ap.add_argument("--all-polygons", action="store_true",
                     help="Predict every polygon in the KMZ into one workbook")
@@ -48,6 +55,7 @@ def main() -> int:
     # Validate everything cheap before doing minutes of propagation, and fail
     # with a message rather than a traceback. [SESSION 2026-07-15]
     try:
+        profile = P.get_profile(a.sensor)        # raises ValueError on an unknown key
         start = P.parse_start_utc(a.start)          # converts an offset, never relabels it
         P.validate_window(a.days)
         ZoneInfo(a.tz)                              # else we'd only find out after predicting
@@ -65,7 +73,7 @@ def main() -> int:
         return 2
 
     def _predict(kmz_bytes, polygon):
-        return P.predict(kmz_bytes, days=a.days, start_utc=start,
+        return P.predict(kmz_bytes, days=a.days, start_utc=start, profile=profile,
                          terrain_alt_m=a.alt, max_off_nadir_deg=a.max_off_nadir,
                          min_sun_elev_deg=a.min_sun, polygon_name=polygon,
                          offline_tle_file=a.tle_file,

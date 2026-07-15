@@ -60,6 +60,124 @@ SATELLITES: dict[str, int] = {
 OPERATIONAL: dict[str, bool] = {name: True for name in SATELLITES}
 OPERATIONAL["DRAG05"] = False
 
+
+# Dragonette sensor / quality parameters [LITERATURE: eoPortal EPICHyper /
+# Dragonette; Wyvern data-product guide, 2026]. Used only for advisory
+# acquisition-quality metrics (A1) — never as hard access filters (constraint 6).
+GSD_NADIR_M = 5.3            # ground sample distance at nadir, metres
+SWATH_KM = 20.0             # swath width at nadir
+GLINT_HIGH_DEG = 20.0       # sun-glint angle below this = high specular risk (water)
+GLINT_CAUTION_DEG = 40.0    # 20–40° = caution
+
+# --------------------------------------------------------------------------
+# Sensor profiles — "a second constellation is a config, not a fork" (SPEC.md)
+# --------------------------------------------------------------------------
+# A profile answers a genuinely different question per sensor class:
+#
+#   Dragonette is **agile**: it rolls to your AOI on request. The question is
+#   "can I task it?", and the envelope (|off-nadir| <= 20 deg) is how far it is
+#   willing to lean.
+#
+#   Landsat and Sentinel-2 are **not agile** — fixed nadir push-brooms that image
+#   whatever falls inside their field of view, systematically, whether you ask or
+#   not. The question is "when will it image my AOI anyway?", and the envelope is
+#   the FOV half-angle: a hard optical limit, not a preference. There is no
+#   marginal band, because there is no tasking negotiation to stretch.
+#
+# That is why min_sun defaults to 0 for them: they acquire the daylit side on
+# their own schedule, so a low-sun pass is a real acquisition. Sun elevation is
+# still reported per pass so the user can judge usability themselves.
+# [SESSION 2026-07-15]
+@dataclass(frozen=True)
+class SensorProfile:
+    key: str
+    display: str
+    satellites: dict[str, int]
+    operational: dict[str, bool]
+    max_off_nadir_deg: float
+    marginal_off_nadir_deg: float
+    min_sun_elev_deg: float
+    marginal_sun_elev_deg: float
+    swath_km: float
+    gsd_m: float
+    agile: bool
+    note: str = ""
+
+
+def fov_half_angle_deg(swath_km: float, alt_km: float, re_km: float = 6371.0) -> float:
+    """Look half-angle subtending a given GROUND swath, spherical Earth.
+
+    Derived rather than asserted, because NASA publishes Landsat's swath but not
+    its FOV in degrees. Validated three ways for Sentinel-2 [VERIFIED 2026-07-15]:
+    this returns 10.43 deg from ESA's stated 290 km / 786 km; ESA separately states
+    a 20.6 deg FOV (10.30 deg half); and the max off-nadir measured across 400 real
+    S2 acquisitions was 10.46 deg. For Landsat it returns 7.47 deg from NASA's
+    185 km / 705 km, against the conventional 15 deg FOV (7.50 deg half).
+    """
+    lam = (swath_km / 2.0) / re_km                       # Earth-central half-angle
+    return math.degrees(math.atan2(re_km * math.sin(lam),
+                                   re_km + alt_km - re_km * math.cos(lam)))
+
+
+DRAGONETTE = SensorProfile(
+    key="dragonette", display="Wyvern Dragonette (DRAG01-05)",
+    satellites=SATELLITES, operational=OPERATIONAL,
+    max_off_nadir_deg=20.0, marginal_off_nadir_deg=30.0,
+    min_sun_elev_deg=20.0, marginal_sun_elev_deg=15.0,
+    swath_km=SWATH_KM, gsd_m=GSD_NADIR_M, agile=True,
+    note="Agile/taskable: rolls to the AOI. Envelope |off-nadir| <= 20 deg, "
+         "sun >= 20 deg [REPORT — Wyvern sheet max 19.9 deg]. Marginal band "
+         "20-30 deg / 15-20 deg is a stretch tier, not a Wyvern commitment.")
+
+# NORAD IDs [VERIFIED 2026-07-15 vs the live Celestrak `resource` group].
+# Specs [VERIFIED 2026-07-15]: swath 185 km, 30 m multispectral / 15 m pan,
+# 705 km altitude, 16-day repeat, LTDN 10:12 +/- 5 min, inclination 98.2 deg
+# — NASA science.nasa.gov/mission/landsat/oli and USGS usgs.gov/landsat-missions/landsat-9.
+# Landsat-8 is listed but has published no scene since 2026-06-30 [VERIFIED] —
+# cause undetermined (spacecraft vs catalogue ingest), so it is flagged
+# non-operational here rather than silently offered. [PLACEHOLDER — confirm.]
+LANDSAT = SensorProfile(
+    key="landsat", display="Landsat 8/9 (OLI)",
+    satellites={"LANDSAT8": 39084, "LANDSAT9": 49260},
+    operational={"LANDSAT8": False, "LANDSAT9": True},
+    max_off_nadir_deg=round(fov_half_angle_deg(185.0, 705.0), 2),
+    marginal_off_nadir_deg=round(fov_half_angle_deg(185.0, 705.0), 2),
+    min_sun_elev_deg=0.0, marginal_sun_elev_deg=0.0,
+    swath_km=185.0, gsd_m=30.0, agile=False,
+    note="Fixed nadir push-broom — images whatever falls in its FOV on its own "
+         "16-day cycle; not taskable. Envelope is the FOV half-angle derived from "
+         "the 185 km swath at 705 km. LANDSAT8 flagged non-operational: no "
+         "published scene since 2026-06-30 [VERIFIED 2026-07-15], cause unconfirmed.")
+
+# Specs [VERIFIED 2026-07-15]: swath 290 km, 20.6 deg FOV, 10/20/60 m GSD,
+# 786 km mean altitude, LTDN 10:30 MLST, 5-day constellation revisit (10-day per
+# satellite) — ESA Copernicus SentiWiki sentiwiki.copernicus.eu/web/s2-mission.
+# Sentinel-2A is still acquiring [VERIFIED 2026-07-15 — scenes 05-10, 05-30].
+SENTINEL2 = SensorProfile(
+    key="sentinel2", display="Sentinel-2 A/B/C (MSI)",
+    satellites={"SENTINEL2A": 40697, "SENTINEL2B": 42063, "SENTINEL2C": 60989},
+    operational={"SENTINEL2A": True, "SENTINEL2B": True, "SENTINEL2C": True},
+    max_off_nadir_deg=10.3, marginal_off_nadir_deg=10.3,   # ESA's stated 20.6 deg FOV
+    min_sun_elev_deg=0.0, marginal_sun_elev_deg=0.0,
+    swath_km=290.0, gsd_m=10.0, agile=False,
+    note="Fixed nadir push-broom — images systematically; not taskable. Envelope "
+         "is ESA's stated 20.6 deg FOV (10.3 deg half-angle); the geometric "
+         "derivation from 290 km @ 786 km gives 10.43 deg and the max measured "
+         "across 400 real acquisitions was 10.46 deg.")
+
+PROFILES: dict[str, SensorProfile] = {p.key: p for p in (DRAGONETTE, LANDSAT, SENTINEL2)}
+
+
+def get_profile(key: str | None) -> SensorProfile:
+    """Look up a sensor profile by key; None/empty => Dragonette (the default)."""
+    if not key:
+        return DRAGONETTE
+    try:
+        return PROFILES[key.strip().lower()]
+    except KeyError:
+        raise ValueError(
+            f"unknown sensor {key!r}; choose one of {', '.join(sorted(PROFILES))}") from None
+
 CELESTRAK_URL = "https://celestrak.org/NORAD/elements/gp.php?CATNR={catnr}&FORMAT=TLE"
 DEFAULT_CACHE = Path.home() / ".cache" / "dragonette_tles.json"
 # Celestrak asks clients to identify themselves and blocks generic scripted
@@ -95,13 +213,6 @@ _B = _A * math.sqrt(1.0 - _E2)     # semi-minor axis, km
 
 DEG = math.pi / 180.0
 
-# Dragonette sensor / quality parameters [LITERATURE: eoPortal EPICHyper /
-# Dragonette; Wyvern data-product guide, 2026]. Used only for advisory
-# acquisition-quality metrics (A1) — never as hard access filters (constraint 6).
-GSD_NADIR_M = 5.3            # ground sample distance at nadir, metres
-SWATH_KM = 20.0             # swath width at nadir
-GLINT_HIGH_DEG = 20.0       # sun-glint angle below this = high specular risk (water)
-GLINT_CAUTION_DEG = 40.0    # 20–40° = caution
 
 
 # --------------------------------------------------------------------------
@@ -509,7 +620,7 @@ def _kasten_young_airmass(zenith_deg: float) -> float:
 def acquisition_geometry(r_t: np.ndarray, v_t: np.ndarray, theta: float,
                          site_ecef: np.ndarray, aoi_lat: float, aoi_lon: float,
                          off_nadir_deg: float, sun_el: float, sun_az: float,
-                         alt_km: float) -> dict:
+                         gsd_nadir_m: float = GSD_NADIR_M) -> dict:
     """Advisory acquisition-quality geometry for one pass (A1). All angles in
     degrees; effective GSD in metres. Pure geometry, reuses the state predict()
     already has. [LITERATURE — standard EO/astro relations.]"""
@@ -533,9 +644,13 @@ def acquisition_geometry(r_t: np.ndarray, v_t: np.ndarray, theta: float,
     phase = math.degrees(math.acos(max(-1.0, min(1.0, cos_phase))))
     cos_glint = math.cos(thv) * math.cos(ths) - math.sin(thv) * math.sin(ths) * math.cos(dphi)
     glint = math.degrees(math.acos(max(-1.0, min(1.0, cos_glint))))
-    # effective ground sample distance (secant law, curved-Earth-correct)
+    # Effective ground sample distance (secant law). `gsd_nadir_m` comes from the
+    # sensor profile, so Landsat reports 30 m and Sentinel-2 10 m rather than
+    # Dragonette's 5.3 m. [SESSION 2026-07-15]
+    # (The old `if sun_el > -90` guard here was dead — elevation is always > -90 —
+    # and the parameter `alt_km` was accepted and never read. Both removed.)
     eta = abs(off_nadir_deg) * DEG
-    gsd_eff = GSD_NADIR_M / (math.cos(eta) * math.cos(thv)) if sun_el > -90 else GSD_NADIR_M
+    gsd_eff = gsd_nadir_m / (math.cos(eta) * math.cos(thv))
     # ascending/descending from the sign of the northward velocity (TEME and
     # ECEF share the Z axis, so v_t[2] > 0 ⇒ moving north ⇒ ascending)
     node = "ascending" if v_t[2] >= 0 else "descending"
@@ -1049,18 +1164,19 @@ def predict(kmz_bytes: bytes,
             days: float = 14.0,
             start_utc: datetime | None = None,
             terrain_alt_m: float = 0.0,
-            max_off_nadir_deg: float = 20.0,
-            min_sun_elev_deg: float = 20.0,
-            marginal_off_nadir_deg: float = 30.0,
-            marginal_sun_elev_deg: float = 15.0,
+            max_off_nadir_deg: float | None = None,
+            min_sun_elev_deg: float | None = None,
+            marginal_off_nadir_deg: float | None = None,
+            marginal_sun_elev_deg: float | None = None,
             coarse_step_s: float = 20.0,
             polygon_name: str | None = None,
-            satellites: dict[str, int] = SATELLITES,
+            satellites: dict[str, int] | None = None,
             tles: dict[str, TLE] | None = None,
             offline_tle_file: str | Path | None = None,
             include_nonoperational: bool = True,
             nadir_ellipsoid: bool = False,
             operational: dict[str, bool] | None = None,
+            profile: "SensorProfile | str | None" = None,
             ) -> Prediction:
     """Run the full pipeline. Supply `tles` to skip fetching (tests/offline).
 
@@ -1071,12 +1187,29 @@ def predict(kmz_bytes: bytes,
 
     nadir_ellipsoid=True measures off-nadir from the WGS84 ellipsoid normal
     instead of geocentric −r̂ (up to ~0.2° difference; physically the correct
-    'nadir' but off the validated geocentric baseline — opt-in). [SESSION]"""
+    'nadir' but off the validated geocentric baseline — opt-in). [SESSION]
+
+    `profile` selects the sensor (a SensorProfile or its key, e.g. "landsat",
+    "sentinel2"); it supplies the satellite set, operational map and access
+    envelope. Default is DRAGONETTE, and every explicit argument still wins over
+    the profile — so existing callers are unaffected. [SESSION 2026-07-15]"""
+    prof = profile if isinstance(profile, SensorProfile) else get_profile(profile)
+    # Profile supplies the defaults; an explicit argument always overrides it.
+    max_off_nadir_deg = (prof.max_off_nadir_deg if max_off_nadir_deg is None
+                         else max_off_nadir_deg)
+    min_sun_elev_deg = (prof.min_sun_elev_deg if min_sun_elev_deg is None
+                        else min_sun_elev_deg)
+    marginal_off_nadir_deg = (prof.marginal_off_nadir_deg if marginal_off_nadir_deg is None
+                              else marginal_off_nadir_deg)
+    marginal_sun_elev_deg = (prof.marginal_sun_elev_deg if marginal_sun_elev_deg is None
+                             else marginal_sun_elev_deg)
+    satellites = prof.satellites if satellites is None else satellites
+
     aoi = parse_kmz(kmz_bytes, terrain_alt_m, polygon_name)
     start = (start_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
     end = start + timedelta(days=days)
 
-    op_map = operational if operational is not None else OPERATIONAL
+    op_map = operational if operational is not None else prof.operational
 
     warnings: list[str] = []
     if tles is None:
@@ -1100,7 +1233,11 @@ def predict(kmz_bytes: bytes,
                                   coarse_step_s=coarse_step_s,
                                   include_nonoperational=include_nonoperational,
                                   nadir_ellipsoid=nadir_ellipsoid,
-                                  swath_km=SWATH_KM))
+                                  swath_km=prof.swath_km,
+                                  gsd_nadir_m=prof.gsd_m,
+                                  sensor=prof.key,
+                                  sensor_display=prof.display,
+                                  agile=prof.agile))
 
     for name, tle in tles.items():
         op = op_map.get(name, True)
@@ -1176,18 +1313,21 @@ def predict(kmz_bytes: bytes,
             else:
                 continue
 
-            # A1: advisory acquisition-quality geometry (never gates access)
-            alt_km = float(np.linalg.norm(r_t)) - _A
+            # A1: advisory acquisition-quality geometry (never gates access).
+            # GSD comes from the sensor profile — Landsat 30 m, Sentinel-2 10 m,
+            # Dragonette 5.3 m. [SESSION 2026-07-15]
             geom = acquisition_geometry(r_t, v_t, theta, site_ecef,
                                         aoi.centroid_lat, aoi.centroid_lon,
-                                        eta_signed, sun, sun_az, alt_km)
+                                        eta_signed, sun, sun_az,
+                                        gsd_nadir_m=prof.gsd_m)
             # A2: quality badge from sun elevation, off-nadir and glint.
             badge = _quality_badge(eta_mag, sun, geom["sun_glint_deg"])
             # A4: TLE-age timing uncertainty (along-track drift → timing jitter)
             age_d = max(0.0, (tca - tle.epoch_utc).total_seconds() / 86400.0)
             tsigma = round((1.0 + 2.0 * age_d) / 7.5, 2)     # km→s at ~7.5 km/s
-            # B1: swath footprint + AOI coverage fraction
-            fp = swath_footprint_lonlat(r_t, v_t, theta, aoi, SWATH_KM)
+            # B1: swath footprint + AOI coverage fraction, at the sensor's own
+            # swath (185 km Landsat / 290 km Sentinel-2 / 20 km Dragonette).
+            fp = swath_footprint_lonlat(r_t, v_t, theta, aoi, prof.swath_km)
             cov = aoi_coverage_fraction(fp, aoi)
 
             p = Pass(name, tca, round(eta_signed, 1), round(sun, 4),
@@ -1840,14 +1980,22 @@ def _nonop_note() -> str:
 
 def _method_rows(pred: Prediction) -> list[tuple[str, str]]:
     aoi = pred.aoi
+    # Read the sensor off the prediction, never the Dragonette module constants —
+    # a Landsat workbook that lists DRAG01-05 and a 20 deg envelope is worse than
+    # no Method sheet at all. [SESSION 2026-07-15]
+    prof = get_profile(pred.params.get("sensor"))
     return [
         ("Generated (UTC)", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),
+        ("Sensor", prof.display + ("" if prof.agile else
+                                   "  — fixed nadir push-broom: images systematically "
+                                   "on its own cycle; NOT taskable")),
         ("AOI polygon", aoi.name),
         ("AOI centroid", f"{abs(aoi.centroid_lat):.5f} {'S' if aoi.centroid_lat < 0 else 'N'}, "
                          f"{abs(aoi.centroid_lon):.5f} {'W' if aoi.centroid_lon < 0 else 'E'}"),
         ("Terrain height assumed (m)", aoi.terrain_alt_m),
         ("Window (UTC)", f"{pred.start_utc:%Y-%m-%d %H:%M} to {pred.end_utc:%Y-%m-%d %H:%M}"),
-        ("Satellites (NORAD)", ", ".join(f"{k}={v}" for k, v in SATELLITES.items())),
+        ("Satellites (NORAD)", ", ".join(f"{k}={v}" for k, v in prof.satellites.items())),
+        ("Swath / nadir GSD", f"{prof.swath_km:g} km / {prof.gsd_m:g} m"),
         ("TLE source", "Celestrak GP catalogue, propagated with SGP4"),
         ("Frames", "TEME→ECEF via GMST (IAU 1982) rotation"),
         ("Off-nadir", "Angle at spacecraft between geocentric nadir and LOS to AOI centroid; "
@@ -1857,9 +2005,18 @@ def _method_rows(pred: Prediction) -> list[tuple[str, str]]:
         ("Sun elevation", "Astronomical Almanac low-precision solar position (~0.01°) at "
                           "AOI at TCA, geometric, no refraction"),
         ("Access filter", f"|off-nadir| ≤ {pred.params['max_off_nadir_deg']}°, "
-                          f"sun ≥ {pred.params['min_sun_elev_deg']}°"),
-        ("Caveat", "Geometric access only — Wyvern tasking/scheduling and cloud cover "
-                   "are separate constraints."),
+                          f"sun ≥ {pred.params['min_sun_elev_deg']}°"
+                          + ("" if prof.agile else
+                             "  — the off-nadir limit is this sensor's FOV half-angle "
+                             "(a hard optical limit, not a tasking preference); the sun "
+                             "floor is daylight, since it images on its own schedule")),
+        ("Caveat", ("Geometric access only — Wyvern tasking/scheduling and cloud cover "
+                    "are separate constraints.") if prof.agile else
+                   ("Geometric access only. These are PREDICTED ACQUISITIONS, not "
+                    "tasking opportunities: this sensor images whatever falls in its "
+                    "swath on a fixed cycle, and cannot be pointed at your AOI on "
+                    "request. Whether a scene is actually delivered/usable depends on "
+                    "the operator's own duty cycle and cloud.")),
     ]
 
 

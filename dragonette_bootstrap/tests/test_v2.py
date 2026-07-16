@@ -536,6 +536,261 @@ def test_coverage_partial_for_oversized_aoi():
                         for p in rows)
 
 
+# ------------------------------------------- B1: push-broom swath sits on the track
+def _equatorial_state(alt_km: float):
+    """A satellite over (0,0) at `alt_km`, moving north. theta=0 makes the TEME
+    axes coincide with ECEF, so the geometry is checkable by hand: the
+    sub-satellite point is (0,0) and cross-track is (near enough) east-west."""
+    import numpy as np
+    r_t = P.geodetic_to_ecef(0.0, 0.0, alt_km)      # on the +X axis
+    v_t = np.array([0.0, 0.0, 7.5])                 # +Z is north at the equator
+    return r_t, v_t, 0.0
+
+
+def _track_frame(r_t, v_t, theta):
+    """(geodetic sub-satellite point, track unit, cross unit, geodetic alt km)."""
+    import numpy as np
+    sat = P.teme_to_ecef(r_t, theta)
+    lat0, lon0 = P.ecef_to_geodetic_latlon(sat)       # geodetic sub-satellite point
+    ssp = P.geodetic_to_ecef(lat0, lon0, 0.0)
+    up = P.geodetic_up(lat0, lon0)
+    v_ecef = P.teme_to_ecef(v_t, theta) - np.cross([0.0, 0.0, P._OMEGA_E], sat)
+    track = v_ecef - (v_ecef @ up) * up; track /= np.linalg.norm(track)
+    cross = np.cross(up, track); cross /= np.linalg.norm(cross)
+    return ssp, track, cross, float(np.linalg.norm(sat - ssp))
+
+
+def _aoi_at_cross_track_offset(r_t, v_t, theta, offset_km, box_km=10.0,
+                               along_km=0.0):
+    """A `box_km` square AOI whose centre sits `offset_km` cross-track (and
+    `along_km` along-track) of the ground track, in the satellite's own frame."""
+    ssp, track, cross, _ = _track_frame(r_t, v_t, theta)
+    c = ssp + offset_km * cross + along_km * track
+    clat, clon = P.ecef_to_geodetic_latlon(c)
+    h = box_km / 2.0
+    verts = []
+    for da, dc in [(-h, -h), (-h, h), (h, h), (h, -h)]:
+        la, lo = P.ecef_to_geodetic_latlon(c + da * track + dc * cross)
+        verts.append((lo, la))
+    return P.AOI("probe", verts, clon, clat, 0.0)
+
+
+@pytest.mark.parametrize("alt_km", [
+    705.0,     # nominal
+    731.7,     # Landsat-9's real apogee-ish geodetic altitude; the half-swath is
+])              # 96.0 km here, not 92.5 — a hardcoded swath is 3.5 km wrong
+@pytest.mark.parametrize("delta_km,expected", [
+    (-40.0, 1.00),    # AOI well inside the swath  -> fully imaged
+    (-5.0, 1.00),     # AOI's outer edge just touches the swath edge
+    (0.0, 0.50),      # AOI centred exactly ON the swath edge -> half imaged
+    (2.5, 0.25),      # AOI mostly outside the swath
+])
+def test_pushbroom_coverage_follows_the_ground_track(delta_km, expected, alt_km):
+    """A fixed nadir push-broom images what falls under its TRACK, so an AOI at the
+    edge of the swath is only partly imaged. The agile (AOI-centred) model reports
+    1.0 for every case here — a plausible number that cannot be false.
+
+    Offsets are expressed relative to the *actual* swath edge rather than a
+    hardcoded 92.5 km, because the ground half-swath is not a constant: it follows
+    the geodetic altitude. Pinning against 92.5 would only be true at the one
+    altitude where the model's dominant error vanishes. [SESSION 2026-07-16]
+
+    Analytic truth: a 10 km AOI centred `delta` beyond the swath edge E spans
+    [E+delta-5, E+delta+5], of which [.., E] is imaged => (5-delta)/10, capped at 1.
+    """
+    fov = P.LANDSAT.max_off_nadir_deg
+    r_t, v_t, theta = _equatorial_state(alt_km)
+    _, _, _, alt = _track_frame(r_t, v_t, theta)
+    edge = P.ground_half_swath_km(alt, fov)
+    aoi = _aoi_at_cross_track_offset(r_t, v_t, theta, edge + delta_km)
+    fp = P.swath_footprint_lonlat(r_t, v_t, theta, aoi, 185.0, agile=False,
+                                  fov_half_deg=fov)
+    assert P.aoi_coverage_fraction(fp, aoi) == pytest.approx(expected, abs=0.02)
+
+
+def test_pushbroom_half_swath_tracks_geodetic_altitude():
+    """The ground swath of a fixed-FOV push-broom is NOT a constant: Landsat-9's
+    geodetic altitude swings ~704.6-731.7 km over one orbit (circular
+    geocentrically, but the ellipsoid is not), moving the half-swath 92.5->96.0 km.
+    Hardcoding swath_km/2 against an angular gate let the two disagree by 3.5 km
+    and report an AOI wholly inside the FOV as 0% covered. [VERIFIED 2026-07-16]"""
+    fov = P.LANDSAT.max_off_nadir_deg
+    # inverse of the derivation the profile itself uses
+    assert P.ground_half_swath_km(705.0, fov) == pytest.approx(92.5, abs=0.1)
+    lo = P.ground_half_swath_km(704.6, fov)
+    hi = P.ground_half_swath_km(731.7, fov)
+    assert hi - lo > 3.0, "altitude swing must move the swath materially"
+    assert lo < hi                                  # monotonic in altitude
+    # a look direction past the limb has no ground intersection
+    assert P.ground_half_swath_km(705.0, 89.0) is None
+
+
+@pytest.mark.parametrize("prof_key,lat,lon", [
+    ("landsat", -55.0, 0.0),
+    ("sentinel2", -70.0, 90.0),
+])
+def test_pushbroom_coverage_never_contradicts_the_access_gate(prof_key, lat, lon):
+    """The regression this whole model change risks: `predict()` must never report
+    an AOI lying wholly inside the sensor's FOV as less than fully covered.
+
+    These sites are chosen, not swept. The defect is driven by the geodetic-altitude
+    swing, so it only shows where a pass puts the AOI *near the FOV edge* at a
+    *high* point of the orbit — high southern latitudes here. A tidy sweep of
+    round-number latitudes at one longitude never lands on such a geometry and
+    passes happily against the bug. [VERIFIED 2026-07-16]
+
+    The <=2% tolerance is the gate's own geocentric-nadir convention (the validated
+    default) meeting the swath's geodetic ground track: bounded at ~0.62 km
+    cross-track, and it vanishes entirely under nadir_ellipsoid=True."""
+    prof = P.get_profile(prof_key)
+    pred = P.predict(make_kmz(lat, lon), days=6.0, start_utc=START,
+                     polygon_name="TEST_AOI",
+                     offline_tle_file=str(FIX / "tles_landsat_sentinel2_20260715.txt"),
+                     profile=prof, min_sun_elev_deg=-90, marginal_sun_elev_deg=-90)
+    rows = [p for p in pred.passes + pred.marginal + pred.nonoperational
+            if p.coverage_pct is not None]
+    near_edge = 0
+    for p in rows:
+        if p.max_off_nadir_aoi_deg > 0.9 * prof.max_off_nadir_deg:
+            near_edge += 1
+        if p.max_off_nadir_aoi_deg <= prof.max_off_nadir_deg:
+            assert p.coverage_pct >= 0.98, (
+                f"{prof_key} @ ({lat},{lon}): every AOI vertex is inside the "
+                f"{prof.max_off_nadir_deg} deg FOV (max {p.max_off_nadir_aoi_deg}) "
+                f"yet coverage reads {p.coverage_pct}")
+    # Guard the test's own premise: no near-edge pass => nothing here can bite.
+    assert near_edge, (f"{prof_key} @ ({lat},{lon}) produced no pass near the FOV "
+                       "edge; this test is asleep and must be retargeted")
+
+
+def test_pushbroom_swath_centres_on_the_geodetic_ground_track():
+    """The swath centreline must sit on the *geodetic* sub-satellite point — the
+    standard ground track, and where a local-vertical-pointing push-broom's
+    boresight lands.
+
+    Uses the real Landsat-9 element set rather than a synthetic state, deliberately:
+    the geodetic and geocentric sub-points coincide exactly at the equator (so the
+    parametrized test above cannot see this at all), and for a *due-north* track
+    their ~2 km separation is almost entirely ALONG-track, which a continuous strip
+    does not care about. It is Landsat's 98.2 deg retrograde inclination that turns
+    part of it cross-track — the only component that moves the swath edge.
+    [SESSION 2026-07-16]"""
+    import numpy as np
+    from sgp4.api import Satrec
+    tle = P._parse_3le_file((FIX / "tles_landsat_sentinel2_20260715.txt").read_text(),
+                            {"LANDSAT9": 49260})["LANDSAT9"]
+    sr = Satrec.twoline2rv(tle.line1, tle.line2)
+    jd, fr = P.dt_to_jd(tle.epoch_utc)
+    # +74 min: where the cross-track separation of the two candidate sub-points
+    # peaks over this orbit (0.623 km, near the southern turn). Chosen for maximum
+    # discrimination — the model is what is under test here, not the AU sites.
+    fr += 74.0 / 1440.0
+    err, r, v = sr.sgp4(jd, fr)
+    assert err == 0
+    r_t, v_t = np.array(r), np.array(v)
+    theta = float(P.gmst_rad(jd + fr))
+    sat = P.teme_to_ecef(r_t, theta)
+
+    ssp_lat, ssp_lon = P.ecef_to_geodetic_latlon(sat)
+    geodetic_pt = P.geodetic_to_ecef(ssp_lat, ssp_lon, 0.0)
+    geocentric_pt = P.ellipsoid_intersect(sat, -sat / np.linalg.norm(sat))
+
+    up = P.geodetic_up(ssp_lat, ssp_lon)
+    v_ecef = P.teme_to_ecef(v_t, theta) - np.cross([0.0, 0.0, P._OMEGA_E], sat)
+    track = v_ecef - (v_ecef @ up) * up; track /= np.linalg.norm(track)
+    cross = np.cross(up, track); cross /= np.linalg.norm(cross)
+
+    # Guard the test's own premise: if the two candidates ever stop being
+    # distinguishable cross-track here, this test is asleep and must be retuned.
+    separation = abs(float((geodetic_pt - geocentric_pt) @ cross))
+    assert separation > 0.3, (
+        f"geodetic and geocentric sub-points differ by only {separation:.3f} km "
+        "cross-track here — this test no longer discriminates; retune the epoch")
+
+    # Put the AOI well off the track, so the swath centre is decided by the model
+    # rather than by where the AOI happens to sit.
+    aoi = _aoi_at_cross_track_offset(r_t, v_t, theta, 60.0)
+    fp = P.swath_footprint_lonlat(r_t, v_t, theta, aoi, 185.0, agile=False)
+
+    # Coverage cannot pin this — a sub-km shift leaves a 185 km swath reading 1.0 —
+    # so assert on the centreline's offset directly. Reconstructing the centre from
+    # the four surface-projected corners costs ~0.02 km of chord/curvature error,
+    # well inside the ~0.5 km signal.
+    corners = np.array([P.geodetic_to_ecef(la, lo, 0.0) for lo, la in fp])
+    centreline = corners.mean(axis=0)
+    off_geodetic = abs(float((centreline - geodetic_pt) @ cross))
+    off_geocentric = abs(float((centreline - geocentric_pt) @ cross))
+
+    assert off_geodetic < 0.1, f"centreline sits {off_geodetic:.3f} km off the track"
+    assert off_geocentric > separation / 2, (
+        "centreline is on the geocentric sub-point, not the geodetic ground track")
+
+
+def test_pushbroom_keeps_the_aois_along_track_station():
+    """Only the CROSS-track centre moves onto the track — the footprint must still
+    straddle the AOI along-track. Pins the docstring's load-bearing claim, which
+    `center = ssp` (deleting the behaviour outright) would otherwise satisfy: the
+    AOI sits ~1.6-2.0 km along-track of the sub-satellite point at TCA, so this is
+    a live invariant, not dead code. [SESSION 2026-07-16]"""
+    import numpy as np
+    r_t, v_t, theta = _equatorial_state(705.0)
+    ssp, track, cross, _ = _track_frame(r_t, v_t, theta)
+    ALONG = 30.0
+    aoi = _aoi_at_cross_track_offset(r_t, v_t, theta, 40.0, along_km=ALONG)
+    fp = P.swath_footprint_lonlat(r_t, v_t, theta, aoi, 185.0, agile=False,
+                                  fov_half_deg=P.LANDSAT.max_off_nadir_deg)
+    corners = np.array([P.geodetic_to_ecef(la, lo, 0.0) for lo, la in fp])
+    centre = corners.mean(axis=0)
+    assert float((centre - ssp) @ track) == pytest.approx(ALONG, abs=0.5)
+    # and the AOI is still fully imaged, being well inside the swath
+    assert P.aoi_coverage_fraction(fp, aoi) == pytest.approx(1.0, abs=1e-3)
+
+
+def test_agile_coverage_stays_centred_on_the_aoi():
+    """The agile model is unchanged and still deliberately AOI-centred: a rolling
+    sensor points at the target, so coverage asks 'does my AOI fit cross-track'.
+    This is the behaviour CLAUDE.md records as mislabelled-not-broken; it is a
+    human's call to rename or re-model, so it is pinned here, not changed."""
+    r_t, v_t, theta = _equatorial_state(525.0)
+    aoi = _aoi_at_cross_track_offset(r_t, v_t, theta, 95.0)
+    fp = P.swath_footprint_lonlat(r_t, v_t, theta, aoi, 185.0, agile=True)
+    assert P.aoi_coverage_fraction(fp, aoi) == pytest.approx(1.0, abs=1e-3)
+
+
+def test_swath_footprint_defaults_to_agile():
+    """Dragonette is the default sensor; the default must not silently change."""
+    r_t, v_t, theta = _equatorial_state(525.0)
+    aoi = _aoi_at_cross_track_offset(r_t, v_t, theta, 95.0)
+    assert (P.swath_footprint_lonlat(r_t, v_t, theta, aoi, 185.0)
+            == P.swath_footprint_lonlat(r_t, v_t, theta, aoi, 185.0, agile=True))
+
+
+def test_predict_uses_the_profile_agility_for_coverage():
+    """predict() must thread the profile's agility through, not hardcode agile."""
+    import numpy as np
+    seen = {}
+    real = P.swath_footprint_lonlat
+
+    def spy(r_t, v_t, theta, aoi, swath_km=P.SWATH_KM, agile=True, **kw):
+        seen[swath_km] = agile
+        return real(r_t, v_t, theta, aoi, swath_km, agile, **kw)
+
+    P.swath_footprint_lonlat = spy
+    try:
+        for prof in (P.DRAGONETTE, P.LANDSAT):
+            tles = P._parse_3le_file(Path(DEMO_TLES).read_text(), P.SATELLITES)
+            # reuse the synthetic constellation under each profile's optics
+            P.predict(SITEA_KMZ, days=3.0, start_utc=START, terrain_alt_m=400.0,
+                      polygon_name="SITEA_100sqkm", tles=tles,
+                      profile=prof, min_sun_elev_deg=-90,
+                      marginal_sun_elev_deg=-90,
+                      max_off_nadir_deg=25.0, marginal_off_nadir_deg=25.0)
+    finally:
+        P.swath_footprint_lonlat = real
+    assert seen[P.DRAGONETTE.swath_km] is True
+    assert seen[P.LANDSAT.swath_km] is False
+
+
 def test_coverage_in_json_and_xlsx(tmp_path):
     from openpyxl import load_workbook
     pred = _predict(SITEA_KMZ, "SITEA_100sqkm", max_off_nadir_deg=20.0)

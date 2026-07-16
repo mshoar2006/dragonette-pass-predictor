@@ -119,6 +119,31 @@ def fov_half_angle_deg(swath_km: float, alt_km: float, re_km: float = 6371.0) ->
                                    re_km + alt_km - re_km * math.cos(lam)))
 
 
+def ground_half_swath_km(alt_km: float, fov_half_deg: float,
+                         re_km: float = 6371.0) -> float | None:
+    """Ground half-swath subtended by a FOV half-angle at `alt_km`, or None if the
+    look angle passes the limb. Exact inverse of `fov_half_angle_deg`:
+    `lambda(eta) = asin((1 + h/Re)·sin eta) − eta`, ground distance `Re·lambda`.
+
+    Why a fixed-FOV push-broom's ground swath is NOT a constant [VERIFIED
+    2026-07-16]: it scales with the spacecraft's *geodetic* altitude, which swings
+    **704.6 → 731.7 km** for Landsat-9 over a single orbit — the orbit is circular
+    geocentrically, but the ellipsoid it flies over is not. So the true half-swath
+    runs 92.48 → 96.04 km against the nominal 92.5.
+
+    This matters because a profile describes one optic two ways — `swath_km` (a
+    ground distance) and `max_off_nadir_deg` (an angle) — and they cannot both be
+    constant. Holding `swath_km` fixed let the access gate and the footprint
+    disagree by up to 3.5 km, which reported an AOI that was wholly inside the FOV
+    as 0% covered. Deriving the swath from the gate makes them agree by
+    construction. [LITERATURE — B1 lambda(eta) relation.]"""
+    e = math.radians(fov_half_deg)
+    s = (1.0 + alt_km / re_km) * math.sin(e)
+    if s >= 1.0:                     # look direction misses the Earth entirely
+        return None
+    return re_km * (math.asin(s) - e)
+
+
 DRAGONETTE = SensorProfile(
     key="dragonette", display="Wyvern Dragonette (DRAG01-05)",
     satellites=SATELLITES, operational=OPERATIONAL,
@@ -557,11 +582,38 @@ _OMEGA_E = 7.292115e-5     # Earth rotation rate, rad/s
 
 
 def swath_footprint_lonlat(r_t: np.ndarray, v_t: np.ndarray, theta: float,
-                           aoi: "AOI", swath_km: float = SWATH_KM) -> list[tuple[float, float]]:
-    """Ground footprint polygon (lon,lat): a swath_km-wide *ground* rectangle
-    centred on the AOI, oriented along the satellite ground track (B1). Swath is
-    a fixed ground cross-track distance (standard EO convention), spanning the
-    AOI along-track (min 6 km). The boresight points at the AOI centroid."""
+                           aoi: "AOI", swath_km: float = SWATH_KM,
+                           agile: bool = True,
+                           fov_half_deg: float | None = None) -> list[tuple[float, float]]:
+    """Ground footprint polygon (lon,lat): a *ground* rectangle oriented along the
+    satellite ground track, spanning the AOI along-track (min 6 km) (B1). Its
+    cross-track width is `swath_km` (a fixed ground distance, the standard EO
+    convention) unless `fov_half_deg` is given, in which case it is derived from
+    the sensor's FOV at its instantaneous altitude — see below.
+
+    Where the swath sits cross-track depends on whether the sensor can roll. This
+    is the honest footprint model that IMPROVEMENTS.md's sensor-profile section
+    predicted adding the push-brooms would force. [SESSION 2026-07-16]
+
+    - `agile=True` (Dragonette): the sensor rolls to the AOI on request, so the
+      boresight points at the AOI centroid and the swath is centred there. What
+      coverage then measures is "does my AOI fit cross-track" — which is why it
+      reads 1.0 for every AOI narrower than 20 km. Mislabelled, not wrong; see
+      SPEC.md Non-goals.
+    - `agile=False` (Landsat/Sentinel-2): a fixed nadir push-broom images
+      whatever falls under it, so the swath is centred on the **ground track**,
+      not on the AOI. Centring it on the AOI would report full coverage for an
+      AOI sitting at the very edge of the swath — a plausible number that cannot
+      be false, which is this project's dominant bug class. The along-track
+      station stays at the AOI (a push-broom's strip is continuous along-track,
+      so along-track is never the limiting dimension); only the cross-track
+      centre moves onto the track.
+
+    `fov_half_deg` (non-agile only) derives the half-swath from the sensor's FOV
+    at its *instantaneous* altitude, instead of trusting the nominal `swath_km`.
+    Pass it whenever the caller also gates access on that angle, so the gate and
+    the footprint cannot contradict each other — see `ground_half_swath_km`.
+    """
     c_lat, c_lon = aoi.centroid_lat, aoi.centroid_lon
     center = geodetic_to_ecef(c_lat, c_lon, aoi.terrain_alt_m / 1000.0)
     sat = teme_to_ecef(r_t, theta)
@@ -578,6 +630,26 @@ def swath_footprint_lonlat(r_t: np.ndarray, v_t: np.ndarray, theta: float,
     extent = float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0))) if len(verts) else 6.0
     half_at = max(extent, 6.0) / 2.0                 # along-track half-length, km
     half_ct = swath_km / 2.0                          # ground cross-track half, km
+
+    if not agile:
+        # Slide the centre cross-track onto the ground track, keeping the AOI's
+        # along-track station. The track is the locus of *geodetic* sub-satellite
+        # points — the standard definition, and the one that matches a
+        # local-vertical-pointing push-broom's boresight. Measured against the
+        # geocentric sub-point (Landsat-9, one orbit): they differ by up to
+        # 2.1 km, but ~2.07 km of that is ALONG-track, which a continuous strip
+        # does not care about; the cross-track component that would actually move
+        # the swath edge peaks at 0.62 km. [SESSION 2026-07-16]
+        ssp_lat, ssp_lon = ecef_to_geodetic_latlon(sat)
+        ssp = geodetic_to_ecef(ssp_lat, ssp_lon, 0.0)
+        center = center - float((center - ssp) @ cross) * cross
+        if fov_half_deg is not None:
+            # |sat − ssp| IS the geodetic altitude: ssp is the foot of the
+            # ellipsoid normal through the spacecraft.
+            hs = ground_half_swath_km(float(np.linalg.norm(sat - ssp)), fov_half_deg)
+            if hs is None:
+                return []
+            half_ct = hs
 
     corners = []
     for sa, sc in [(-1, -1), (-1, 1), (1, 1), (1, -1)]:
@@ -1327,7 +1399,13 @@ def predict(kmz_bytes: bytes,
             tsigma = round((1.0 + 2.0 * age_d) / 7.5, 2)     # km→s at ~7.5 km/s
             # B1: swath footprint + AOI coverage fraction, at the sensor's own
             # swath (185 km Landsat / 290 km Sentinel-2 / 20 km Dragonette).
-            fp = swath_footprint_lonlat(r_t, v_t, theta, aoi, prof.swath_km)
+            # For a push-broom, derive the swath from the profile's own FOV rather
+            # than its nominal swath_km, so the footprint cannot contradict the
+            # access gate above. prof.max_off_nadir_deg (the optic), not the
+            # possibly-overridden gate: widening the gate does not widen the lens.
+            fp = swath_footprint_lonlat(
+                r_t, v_t, theta, aoi, prof.swath_km, agile=prof.agile,
+                fov_half_deg=None if prof.agile else prof.max_off_nadir_deg)
             cov = aoi_coverage_fraction(fp, aoi)
 
             p = Pass(name, tca, round(eta_signed, 1), round(sun, 4),

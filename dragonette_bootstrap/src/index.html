@@ -517,7 +517,7 @@ const BAR_HALF=0.34;                       // lane half-height a bar occupies
 function renderTimeline(aois){
   const c=$('tlcard'); c.innerHTML=''; c.append(el('h3',null,'Timeline — imaging opportunities'));
   if(typeof Plotly==='undefined'){ c.append(el('div','muted','timeline unavailable')); return; }
-  const div=el('div'); div.style.height='340px'; c.append(div);
+  const div=el('div'); c.append(div);
   // satellite lanes come from the active sensor profile (order + full roster), so
   // Landsat/Sentinel-2 draw their own constellation, not Dragonette's. Falls back
   // to whatever satellites are present if the profile roster is absent.
@@ -527,6 +527,9 @@ function renderTimeline(aois){
   [...present].sort().forEach(s=>{ if(!SATS.includes(s)) SATS.push(s); });
   if(!SATS.length) SATS=[...present].sort();
   const yOf={}; SATS.forEach((s,i)=>yOf[s]=i);          // 0 = top lane (y-axis reversed)
+  // Height scales with lane count so a 10-satellite combined view isn't cramped and
+  // the off-nadir labels above the top row have room. [SESSION 2026-07-20]
+  const H=Math.max(300, 30*SATS.length + 120); div.style.height=H+'px';
 
   // one line-segment trace per band draws all its bars; a hidden marker trace at
   // each bar carries the rich hover; a text trace prints the angle above the bar.
@@ -556,7 +559,8 @@ function renderTimeline(aois){
     traces.push(barTrace(`non-operational${nn.length?` (${nn.join(', ')})`:''}`,'#9aa7b4',nonop,true));
   }
   traces.push({type:'scatter',mode:'text',x:lab.x,y:lab.y,text:lab.t,textposition:'top center',
-    textfont:{size:9.5,color:'#9fb0c4',family:'JetBrains Mono'},hoverinfo:'skip',showlegend:false});
+    textfont:{size:9.5,color:'#9fb0c4',family:'JetBrains Mono'},hoverinfo:'skip',
+    cliponaxis:false,showlegend:false});
   traces.push({type:'scatter',mode:'markers',x:hov.x,y:hov.y,customdata:hov.cd,
     marker:{size:16,color:'rgba(0,0,0,0)'},hovertemplate:'%{customdata}<extra></extra>',showlegend:false});
 
@@ -572,11 +576,11 @@ function renderTimeline(aois){
       anns.push({x:a0.cloud_horizon_utc,y:1.02,xref:'x',yref:'paper',text:'▸ beyond cloud forecast',showarrow:false,
         font:{size:9,color:'#6B7A8F'},xanchor:'left'}); }
   }
-  const layout={ height:340, margin:{l:74,r:16,t:10,b:38}, paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+  const layout={ height:H, margin:{l:74,r:22,t:24,b:38}, paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
     font:{family:'Inter,system-ui,sans-serif',color:'#A7B4C6',size:11},
     xaxis:{type:'date',gridcolor:'#232C3B',zeroline:false,range:[a0.window_utc[0],a0.window_utc[1]],
       title:{text:'Date (UTC)',font:{size:10,color:'#6B7A8F'}}},
-    yaxis:{range:[SATS.length-0.5,-0.8],tickvals:SATS.map((s,i)=>i),ticktext:SATS,
+    yaxis:{range:[SATS.length-0.5,-1.0],tickvals:SATS.map((s,i)=>i),ticktext:SATS,
       gridcolor:'#1A212E',zeroline:false,ticksuffix:'  '},
     shapes, annotations:anns, hovermode:'closest',
     hoverlabel:{bgcolor:'#141A24',bordercolor:'#2E394B',font:{family:'JetBrains Mono',size:11,color:'#EAF0F7'}},

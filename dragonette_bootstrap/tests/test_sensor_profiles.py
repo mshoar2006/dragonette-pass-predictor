@@ -85,11 +85,12 @@ def test_non_agile_sensors_have_no_marginal_band():
     assert P.DRAGONETTE.marginal_off_nadir_deg > P.DRAGONETTE.max_off_nadir_deg
 
 
-def test_landsat8_is_flagged_non_operational():
-    """No published scene since 2026-06-30 while Landsat-9 runs to 07-13 [VERIFIED];
-    cause undetermined, so it gets the DRAG05 treatment rather than being silently
-    offered as an opportunity."""
-    assert P.LANDSAT.operational["LANDSAT8"] is False
+def test_both_landsat_satellites_are_operational():
+    """Landsat-8 and Landsat-9 both operational [VERIFIED 2026-07-20 vs earth-search
+    STAC: L8 has 14,632 L2 scenes in the trailing 30 d, latest 2026-07-10]. An
+    earlier build flagged L8 non-op off a Collection-2 processing-latency gap, which
+    was wrong — this pins the correction."""
+    assert P.LANDSAT.operational["LANDSAT8"] is True
     assert P.LANDSAT.operational["LANDSAT9"] is True
 
 

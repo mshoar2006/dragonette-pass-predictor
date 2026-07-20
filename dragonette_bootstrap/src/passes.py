@@ -158,21 +158,23 @@ DRAGONETTE = SensorProfile(
 # Specs [VERIFIED 2026-07-15]: swath 185 km, 30 m multispectral / 15 m pan,
 # 705 km altitude, 16-day repeat, LTDN 10:12 +/- 5 min, inclination 98.2 deg
 # — NASA science.nasa.gov/mission/landsat/oli and USGS usgs.gov/landsat-missions/landsat-9.
-# Landsat-8 is listed but has published no scene since 2026-06-30 [VERIFIED] —
-# cause undetermined (spacecraft vs catalogue ingest), so it is flagged
-# non-operational here rather than silently offered. [PLACEHOLDER — confirm.]
+# Both Landsat-8 and Landsat-9 are OPERATIONAL. [VERIFIED 2026-07-20 vs the live
+# earth-search STAC (landsat-c2-l2): Landsat-8 has 14,632 L2 scenes in the trailing
+# 30 days, latest 2026-07-10, ~3.0M lifetime.] An earlier build flagged L8
+# non-operational off "no scene since 2026-06-30", which was Collection-2 L2
+# processing latency, NOT an outage — corrected here.
 LANDSAT = SensorProfile(
     key="landsat", display="Landsat 8/9 (OLI)",
     satellites={"LANDSAT8": 39084, "LANDSAT9": 49260},
-    operational={"LANDSAT8": False, "LANDSAT9": True},
+    operational={"LANDSAT8": True, "LANDSAT9": True},
     max_off_nadir_deg=round(fov_half_angle_deg(185.0, 705.0), 2),
     marginal_off_nadir_deg=round(fov_half_angle_deg(185.0, 705.0), 2),
     min_sun_elev_deg=0.0, marginal_sun_elev_deg=0.0,
     swath_km=185.0, gsd_m=30.0, agile=False,
     note="Fixed nadir push-broom — images whatever falls in its FOV on its own "
          "16-day cycle; not taskable. Envelope is the FOV half-angle derived from "
-         "the 185 km swath at 705 km. LANDSAT8 flagged non-operational: no "
-         "published scene since 2026-06-30 [VERIFIED 2026-07-15], cause unconfirmed.")
+         "the 185 km swath at 705 km. Both LANDSAT8 and LANDSAT9 operational "
+         "[VERIFIED 2026-07-20 vs earth-search STAC].")
 
 # Specs [VERIFIED 2026-07-15]: swath 290 km, 20.6 deg FOV, 10/20/60 m GSD,
 # 786 km mean altitude, LTDN 10:30 MLST, 5-day constellation revisit (10-day per

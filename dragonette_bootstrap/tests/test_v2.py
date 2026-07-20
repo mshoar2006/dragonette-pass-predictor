@@ -1060,9 +1060,9 @@ def test_combined_roster_unions_every_profile():
     sats, op = P.combined_roster()
     assert set(sats) == {"DRAG01", "DRAG02", "DRAG03", "DRAG04", "DRAG05",
                          "LANDSAT8", "LANDSAT9", "SENTINEL2A", "SENTINEL2B", "SENTINEL2C"}
-    # non-op flags survive the union — DRAG05 and LANDSAT8 must stay non-taskable
-    assert op["DRAG05"] is False and op["LANDSAT8"] is False
-    assert op["LANDSAT9"] is True and op["SENTINEL2A"] is True
+    # non-op flag survives the union — DRAG05 must stay non-taskable
+    assert op["DRAG05"] is False
+    assert op["LANDSAT8"] is True and op["LANDSAT9"] is True and op["SENTINEL2A"] is True
 
 
 def test_merge_predictions_marks_all_and_exposes_union_roster():
@@ -1072,7 +1072,8 @@ def test_merge_predictions_marks_all_and_exposes_union_roster():
     body = P.prediction_json([merged])
     assert body["sensor"]["key"] == "all"
     assert set(body["sensor"]["satellites"]) == set(P.combined_roster()[0])
-    assert body["sensor"]["operational"]["LANDSAT8"] is False
+    assert body["sensor"]["operational"]["DRAG05"] is False
+    assert body["sensor"]["operational"]["LANDSAT8"] is True
 
 
 def test_combined_timeline_figure_labels_every_constellation():
@@ -1080,8 +1081,8 @@ def test_combined_timeline_figure_labels_every_constellation():
                                   ("dragonette", "landsat", "sentinel2")])
     fig, ax = P.build_timeline_figure(merged)
     labels = [t.get_text() for t in ax.get_yticklabels()]
-    assert any(l.startswith("LANDSAT9") for l in labels)
-    assert "LANDSAT8 (non-op)" in labels and "DRAG05 (non-op)" in labels
+    assert "LANDSAT8" in labels and "LANDSAT9" in labels    # both operational, no suffix
+    assert "DRAG05 (non-op)" in labels                       # the surviving non-op lane
 
 
 def test_combined_method_sheet_describes_all_sensors_not_one():

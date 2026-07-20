@@ -258,6 +258,7 @@
 
       <div class="actions">
         <button id="go" type="submit" class="btn-primary">Predict opportunities</button>
+        <button id="dlcsv" class="btn-ghost" type="button" disabled title="Export the current results as CSV">CSV</button>
         <button id="dl" class="btn-ghost" type="button" disabled title="Run a prediction first">.xlsx</button>
       </div>
       <div id="status" aria-live="polite"></div>
@@ -372,7 +373,7 @@ function buildForm(){
   fd.append('cloud_threshold',$('cthr').value||'30');
   return fd;
 }
-function setBusy(b,msg){ $('go').disabled=b; $('form').setAttribute('aria-busy',b); $('dl').disabled=b||!window._ok;
+function setBusy(b,msg){ $('go').disabled=b; $('form').setAttribute('aria-busy',b); $('dl').disabled=b||!window._ok; if($('dlcsv')) $('dlcsv').disabled=b||!window._ok;
   $('status').innerHTML=b?('<span class="spinner"></span>'+(msg||'working…')):(msg||''); }
 function showErr(m){ const e=$('error'); e.innerHTML=''; e.append(el('div',null,m)); const x=el('span','x','✕'); x.onclick=()=>e.classList.add('hidden'); e.append(x); e.classList.remove('hidden'); e.scrollIntoView({block:'nearest'}); }
 function clearMsgs(){ $('error').classList.add('hidden'); $('picker').classList.add('hidden'); }
@@ -388,10 +389,10 @@ async function predict(){
       if(det&&det.polygons){ renderPicker(det.polygons); setBusy(false,''); return; }
       showErr(typeof det==='string'?det:JSON.stringify(det)); setBusy(false,''); return; }
     if(!r.ok){ showErr('Server error '+r.status); setBusy(false,''); return; }
-    const body=await r.json(); const aois=aoisOf(body);
+    const body=await r.json(); const aois=aoisOf(body); window._aois=aois;
     renderResults(aois); plotAOIs(aois); renderTimeline(aois);
     const s=aois.reduce((a,x)=>{a.s+=x.passes.length;a.m+=x.marginal.length;return a;},{s:0,m:0});
-    window._ok=true; $('dl').disabled=false;
+    window._ok=true; $('dl').disabled=false; $('dlcsv').disabled=false;
     setBusy(false,`<b>${s.s}</b> standard · <b>${s.m}</b> marginal across ${aois.length} AOI${aois.length>1?'s':''}`);
   }catch(e){ showErr('Request failed: '+e.message); setBusy(false,''); }
 }
@@ -597,6 +598,34 @@ async function download(){
   }catch(e){ showErr('Download failed: '+e.message); setBusy(false,''); }
 }
 
+/* client-side CSV of the current results — instant, no re-prediction (works in
+   the standalone build too, where re-running is slow). [SESSION 2026-07-20] */
+function resultsToCSV(aois){
+  const esc=v=>{ v=(v==null?'':String(v)); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  const cloudStr=c=>{ if(!c) return ''; if(c.tier===1&&c.total_pct!=null) return c.total_pct+'% total';
+    if(c.tier===2&&c.p_clear!=null) return 'P(clr) '+c.p_clear.toFixed(2); if(c.tier===3) return 'climatology'; return ''; };
+  const rows=[['AOI','Bucket','Satellite','TCA (UTC)','Off-nadir deg','Sun elev deg',
+    'Eff GSD m','Coverage %','Quality','Slant km','Node','TLE epoch (UTC)','Cloud']];
+  aois.forEach(a=>{ const push=(p,bucket)=>{ const g=p.geometry||{};
+      rows.push([a.aoi.name,bucket,p.satellite,p.tca_utc,
+        (p.off_nadir_deg>0?'+':'')+p.off_nadir_deg.toFixed(1), p.sun_elev_deg.toFixed(1),
+        g.effective_gsd_m??'', p.coverage_pct!=null?Math.round(p.coverage_pct*100):'',
+        p.quality||'', p.slant_range_km, p.node||'', p.tle_epoch_utc||'', cloudStr(p.cloud)]); };
+    a.passes.forEach(p=>push(p,'standard'));
+    a.marginal.forEach(p=>push(p,'marginal'));
+    (a.nonoperational||[]).forEach(p=>push(p,'non-operational')); });
+  return rows.map(r=>r.map(esc).join(',')).join('\r\n');
+}
+function downloadCSV(){
+  const aois=window._aois; if(!aois||!aois.length){ showErr('Run a prediction first.'); return; }
+  const blob=new Blob(['﻿'+resultsToCSV(aois)],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob); const a=el('a'); a.href=url;
+  const stem=(aois.length>1?'campaign':(aois[0].aoi.name||'aoi')).replace(/[^\w.-]+/g,'_');
+  a.download=stem+'_passes.csv'; document.body.append(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  setBusy(false,'<b>Exported</b> CSV.');
+}
+
 /* ---------- dropzone + file chips ---------- */
 function renderFiles(){ const box=$('files'); box.innerHTML=''; [...$('kmz').files].forEach((f,i)=>{
   const c=el('div','fchip'); c.append(el('span','nm',f.name));
@@ -616,6 +645,7 @@ initMap(); wireDrop();
 $('cloud').addEventListener('change',e=>$('cthrRow').classList.toggle('collapsed',!e.target.checked));
 $('form').addEventListener('submit',predict);
 $('dl').addEventListener('click',download);
+$('dlcsv').addEventListener('click',downloadCSV);
 </script>
 </body>
 </html>

@@ -308,20 +308,32 @@ async def handle(req):
         days = float(f("days", 14))
         alt = float(f("alt", 0))
         tz = str(f("tz", "Australia/Brisbane"))
-        prof = P.get_profile(f("sensor"))
+        sensor_key = str(f("sensor", "dragonette")).strip().lower()
+        combined = sensor_key in (P.COMBINED_KEY, "combined")
+        profiles = ([P.DRAGONETTE, P.LANDSAT, P.SENTINEL2] if combined
+                    else [P.get_profile(sensor_key)])
         P.validate_window(days)
         start = P.parse_start_utc(f("start"))
         if not uploads:
             return _env(422, {"detail": "No KMZ uploaded"})
 
+        all_sats = {}
+        for prof in profiles:
+            all_sats.update(prof.satellites)
         text = ""
-        for name, catnr in prof.satellites.items():
+        for name, catnr in all_sats.items():
             r = await _jsfetch(P.CELESTRAK_URL.format(catnr=catnr))
             if not r.ok:
                 return _env(503, {"detail": "Celestrak HTTP " + str(r.status) + " for " + name})
             text += (await r.text()) + chr(10)
-        tles = P._parse_3le_file(text, prof.satellites)
+        tles = P._parse_3le_file(text, all_sats)
         man = _manoeuvre_warnings(r_prev, tles)
+
+        # Combined "all sensors": predict every profile and merge, matching the
+        # server's _run. Each push-broom uses its own native envelope (None) — a
+        # fixed nadir sensor can't roll — so max_off_nadir/min_sun are single-sensor.
+        moff = None if combined else (float(f("max_off_nadir")) if f("max_off_nadir") else None)
+        msun = None if combined else (float(f("min_sun")) if f("min_sun") else None)
 
         preds = []
         for up in uploads:
@@ -334,12 +346,12 @@ async def handle(req):
             else:
                 targets = [f("polygon")]
             for t in targets:
-                preds.append(P.predict(
+                parts = [P.predict(
                     data, days=days, start_utc=start, terrain_alt_m=alt, profile=prof,
-                    tles=tles, polygon_name=t,
-                    max_off_nadir_deg=float(f("max_off_nadir")) if f("max_off_nadir") else None,
-                    min_sun_elev_deg=float(f("min_sun")) if f("min_sun") else None,
-                    include_nonoperational=flag("include_nonoperational")))
+                    tles={n: tl for n, tl in tles.items() if n in prof.satellites},
+                    polygon_name=t, max_off_nadir_deg=moff, min_sun_elev_deg=msun,
+                    include_nonoperational=flag("include_nonoperational")) for prof in profiles]
+                preds.append(P.merge_predictions(parts) if combined else parts[0])
     except P.AmbiguousPolygonError as exc:
         # The SPA reads detail.polygons and renders its own picker (index.html:371).
         return _env(422, {"detail": {"error": str(exc), "polygons": exc.names}})

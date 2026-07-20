@@ -25,11 +25,11 @@ bias is remembered.
 Threshold dependence — IMPORTANT
 --------------------------------
 A "clear-sky rate" is only meaningful against a cloud threshold, and this uses
-`passes.CLOUD_OK_THRESHOLD`, which is itself an unconfirmed [SESSION] guess
-("tune w/ the mission contact"). **If that threshold changes, this file is wrong and must be
+`passes.CLOUD_OK_THRESHOLD` — a sensible default (30%) that is user-adjustable at
+request time. **If that threshold changes, this file is wrong and must be
 regenerated** — hence `_threshold_pct` is written into the output and asserted by
-tests. No amount of scene data can settle the threshold itself: "how much cloud
-ruins a hyperspectral scene" is a sensor question, not a weather statistic.
+tests. Note the threshold is a decision line, not a weather statistic: scene data
+tells you how cloudy, the threshold decides how cloudy is "too cloudy".
 
 Caveat: `eo:cloud_cover` is a whole-scene statistic (S2 tile ~110x110 km) against
 AOIs of 2.5 ha-100 km2, so this is a *regional* base rate, not per-paddock.
@@ -128,7 +128,8 @@ def build(sites: dict[str, tuple[float, float]], threshold: float,
         "_caveats": [
             "THRESHOLD-DEPENDENT: rates are the fraction of scenes below _threshold_pct. "
             "If passes.CLOUD_OK_THRESHOLD changes, this file is stale and must be "
-            "regenerated. The threshold itself remains an unconfirmed [SESSION] guess.",
+            "regenerated. The threshold is a user-adjustable default (30%), not a weather "
+            "statistic — it is the clear/cloudy decision line.",
             "REGIONAL, NOT PER-PADDOCK: eo:cloud_cover is a whole-scene statistic (S2 tile "
             "~110x110 km) against AOIs of 2.5 ha-100 km2. Sharpening needs the scene cloud "
             "mask clipped to the polygon (S2 SCL / Landsat QA_PIXEL).",

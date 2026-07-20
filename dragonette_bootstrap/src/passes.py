@@ -1474,7 +1474,11 @@ FORECAST_URL = ("https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude
 ENSEMBLE_URL = ("https://ensemble-api.open-meteo.com/v1/ensemble?latitude={lat}"
                 "&longitude={lon}&hourly=cloud_cover&models=ecmwf_ifs025"
                 "&forecast_days=16&timezone=UTC")
-CLOUD_OK_THRESHOLD = 30.0        # % total cloud counted as "clear" [SESSION — tune w/ the mission contact]
+CLOUD_OK_THRESHOLD = 30.0        # % total cloud counted as "clear". [SESSION] A
+# sensible default and USER-ADJUSTABLE at request time (SPA "Cloud threshold"
+# field, CLI --cloud-threshold, API cloud_threshold). Note: Tier-3 climatology is
+# computed against it, so regenerate sites_climatology.json if you change it
+# (climatology.py; a drift guard flags a stale file).
 TIER1_MAX_DAYS = 5.0
 TIER2_MAX_DAYS = 15.0            # A5: was 10; ensemble has skill to ~15 d
 

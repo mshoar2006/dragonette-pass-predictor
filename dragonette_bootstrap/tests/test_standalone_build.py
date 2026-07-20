@@ -163,14 +163,15 @@ def test_xlsx_dependencies_are_installed(html):
 def test_page_does_not_claim_capabilities_it_lacks(html):
     """The reverted build shipped a banner asserting cloud/coverage were impossible.
     They are not. Guard against the inverse too: never claim offline or a cache."""
-    banner = html[html.index("banner.append"):html.index("document.body.insertBefore")]
+    banner = html[html.index("const banner = document.createElement"):
+                  html.index("document.body.insertBefore")]
     low = banner.lower()
     assert "no cloud" not in low, "cloud works; do not claim otherwise"
     assert "geometry only" not in low
     # and it must still disclose the three real differences
     assert "user-agent" in low
     assert "cache" in low
-    assert "first run" in low
+    assert "prior run" in low or "first run" in low
 
 
 def test_page_is_self_contained_apart_from_named_cdns(html):

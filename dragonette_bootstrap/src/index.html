@@ -52,8 +52,10 @@
 
   .app{ display:grid; grid-template-columns:340px 1fr; min-height:calc(100vh - var(--topbar-h)) }
   /* sidebar */
-  .side{ background:var(--bg-elev); border-right:1px solid var(--line); padding:18px 18px 24px;
-    box-shadow:1px 0 0 rgba(0,0,0,.3) }
+  .side{ background:var(--bg-elev); border-right:1px solid var(--line); padding:18px 18px 20px;
+    box-shadow:1px 0 0 rgba(0,0,0,.3);
+    position:sticky; top:var(--topbar-h); align-self:start;
+    max-height:calc(100vh - var(--topbar-h)); overflow-y:auto; overscroll-behavior:contain }
   .side .grp{ margin-bottom:18px }
   .side .grp > .over{ display:block; margin-bottom:9px }
   label{ display:block; font-size:.75rem; color:var(--muted); margin:10px 0 4px }
@@ -184,7 +186,9 @@
     .main{ grid-template-columns:1fr }
     .mapwrap{ position:static; height:52vh; border-left:0; border-bottom:1px solid var(--line); order:-1 }
   }
-  @media(max-width:820px){ .app{ grid-template-columns:1fr } .side{ border-right:0; border-bottom:1px solid var(--line) } }
+  @media(max-width:820px){ .app{ grid-template-columns:1fr }
+    .side{ border-right:0; border-bottom:1px solid var(--line);
+      position:static; max-height:none; overflow:visible } }
 </style>
 </head>
 <body>
@@ -304,7 +308,11 @@ const day=s=>s.slice(0,10);
 /* ---------- map ---------- */
 let map, aoiLayer, aoiPolys={};
 function initMap(){
-  if(typeof L==='undefined') return;
+  // Leaflet loads from a CDN; in the standalone build the SPA scripts can run
+  // before it finishes (Pyodide boot delays everything), so retry rather than
+  // silently bail — otherwise the map panel stays blank. [SESSION 2026-07-20]
+  if(typeof L==='undefined'){ setTimeout(initMap, 120); return; }
+  if(typeof map!=='undefined' && map) return;      // already initialised
   const dark=L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
     {attribution:'&copy; OSM &copy; CARTO',subdomains:'abcd',maxZoom:19});
   // Esri World Imagery — free satellite basemap, no API key required.

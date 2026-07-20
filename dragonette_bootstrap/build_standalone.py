@@ -220,17 +220,25 @@ function mountSPA() {
   for (const n of [...doc.body.children]) document.body.appendChild(document.importNode(n, true));
 
   const banner = document.createElement("div");
-  banner.setAttribute("style", "background:#f4f6f9;border-left:3px solid #6B7A8F;padding:9px 12px;" +
-    "margin:12px 16px;font:12.5px/1.55 system-ui,sans-serif;color:#41506b");
-  banner.append(Object.assign(document.createElement("b"), { textContent: "Standalone build. " }),
+  banner.setAttribute("style", "display:flex;gap:10px;align-items:flex-start;background:#111824;" +
+    "border-bottom:1px solid #25303f;border-left:3px solid #38bdf8;padding:8px 14px;" +
+    "font:12px/1.5 system-ui,sans-serif;color:#8a9bb0");
+  const txt = document.createElement("div");
+  txt.style.flex = "1";
+  txt.append(Object.assign(document.createElement("b"),
+      { textContent: "Standalone build. ", style: "color:#cfe0f0;font-weight:600" }),
     document.createTextNode(
-      "Same validated predictor and same UI as the server build, running entirely in your browser. " +
-      "Cloud, AOI coverage, Tier-3 climatology and the .xlsx download all work. Three real " +
-      "differences: TLEs and cloud are re-fetched on every run (the server build’s cache, " +
-      "cooldown and stale-fallback are unreachable here, and a browser cannot send Celestrak a " +
-      "User-Agent — so use it sparingly); manoeuvre detection compares against your previous " +
-      "run stored in this browser, so the first run cannot see a burn; and pure-Python SGP4 is " +
-      "slower, so a 14-day run takes seconds."));
+      "Same predictor and UI as the server, running entirely in your browser. Cloud, coverage, " +
+      "Tier-3 climatology and .xlsx all work. Differences: TLEs and cloud re-fetch every run " +
+      "(no cache, and a browser can’t send Celestrak a User-Agent — use it sparingly); manoeuvre " +
+      "detection needs a prior run in this browser; and in-browser SGP4 is slower, so a run takes " +
+      "a few seconds."));
+  const x = Object.assign(document.createElement("button"),
+    { textContent: "×", title: "Dismiss", "aria-label": "Dismiss",
+      style: "flex:0 0 auto;background:none;border:0;color:#8a9bb0;font-size:18px;" +
+             "line-height:1;cursor:pointer;padding:0 2px" });
+  x.addEventListener("click", () => banner.remove());
+  banner.append(txt, x);
   document.body.insertBefore(banner, document.body.firstChild);
 
   // Re-run the SPA's own scripts (innerHTML/importNode does not execute them).

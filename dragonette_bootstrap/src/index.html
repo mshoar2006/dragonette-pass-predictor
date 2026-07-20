@@ -217,6 +217,12 @@
 
       <div class="grp">
         <span class="over">Window &amp; geometry</span>
+        <label for="sensor">Sensor</label>
+        <select id="sensor">
+          <option value="dragonette">Wyvern Dragonette (taskable)</option>
+          <option value="landsat">Landsat 8/9 (OLI)</option>
+          <option value="sentinel2">Sentinel-2 A/B/C (MSI)</option>
+        </select>
         <div class="two">
           <div><label for="days">Days ahead</label><input id="days" type="number" value="14" min="1" max="31"></div>
           <div><label for="alt">Terrain (m)</label><input id="alt" type="number" value="0" step="10"></div>
@@ -238,7 +244,7 @@
       <div class="grp">
         <span class="over">Options</span>
         <label class="check"><input id="allpoly" type="checkbox"><span><b>All polygons</b><small>predict every polygon per KMZ</small></span></label>
-        <label class="check"><input id="nonop" type="checkbox" checked><span><b>Include DRAG05</b><small>non-operational, kept separate</small></span></label>
+        <label class="check"><input id="nonop" type="checkbox" checked><span><b>Include non-operational</b><small>e.g. DRAG05 / LANDSAT8 — kept separate</small></span></label>
         <label class="check"><input id="cloud" type="checkbox"><span><b>Cloud cover</b><small>live Open-Meteo 3-tier</small></span></label>
         <div id="cthrRow" class="collapsed">
           <label for="cthr">Cloud threshold (% = clear)</label><input id="cthr" type="number" value="30" step="5">
@@ -345,6 +351,7 @@ function highlightAOI(name,on){ const e=aoiPolys[name]; if(!e||!e.poly) return; 
 function buildForm(){
   const fd=new FormData();
   for(const f of $('kmz').files) fd.append('kmz',f);
+  fd.append('sensor',$('sensor').value);
   fd.append('days',$('days').value||'14');
   if($('start').value) fd.append('start',$('start').value+':00');
   fd.append('alt',$('alt').value||'0'); fd.append('tz',$('tz').value);
@@ -449,7 +456,9 @@ function renderResults(aois){
   const mkTile=(cls,n,label,sub)=>{const t=el('div','tile '+cls); const nn=el('div','n'); nn.innerHTML=n; t.append(nn); t.append(el('div','l over',label)); if(sub){t.append(el('div','sub',sub));} tiles.append(t);};
   mkTile('std',sum.s,'Standard passes', `${goodN} good-quality · `+(nxt?`next ${fmtLead(new Date(nxt.tca_utc)-Date.now())}`:(suns.length?`sun ${Math.min(...suns).toFixed(0)}–${Math.max(...suns).toFixed(0)}°`:'')));
   mkTile('marg',sum.m,'Marginal', hasCloud&&clearN!=null?`${clearN}/${sum.s} standard clear`:'stretch band');
-  mkTile('nonop',sum.n,'Non-op (DRAG05)','not taskable');
+  const _op=(aois[0]&&aois[0].sensor&&aois[0].sensor.operational)||{};
+  const _nn=Object.keys(_op).filter(s=>_op[s]===false);
+  mkTile('nonop',sum.n,`Non-op${_nn.length?` (${_nn.join(', ')})`:''}`,'not taskable');
   if(globalBest){ const bg=globalBest.geometry||{}; mkTile('best',`${globalBest.satellite} <small>${globalBest.off_nadir_deg>0?'+':''}${globalBest.off_nadir_deg.toFixed(1)}°</small>`,'Best pass', `${day(globalBest.tca_utc)} · ${bg.effective_gsd_m??''} m GSD`); }
   else mkTile('best',aois.length,'AOIs','');
   R.append(tiles);
@@ -500,10 +509,14 @@ function renderTimeline(aois){
   const c=$('tlcard'); c.innerHTML=''; c.append(el('h3',null,'Timeline — imaging opportunities'));
   if(typeof Plotly==='undefined'){ c.append(el('div','muted','timeline unavailable')); return; }
   const div=el('div'); div.style.height='340px'; c.append(div);
-  // satellite lanes: full constellation top-to-bottom so absent sats still show a row
+  // satellite lanes come from the active sensor profile (order + full roster), so
+  // Landsat/Sentinel-2 draw their own constellation, not Dragonette's. Falls back
+  // to whatever satellites are present if the profile roster is absent.
+  const sensor=aois[0]&&aois[0].sensor||{};
   const present=new Set(aois.flatMap(a=>a.passes.concat(a.marginal,a.nonoperational||[]).map(p=>p.satellite)));
-  let SATS=['DRAG01','DRAG02','DRAG03','DRAG04','DRAG05'].filter(s=>present.has(s));
+  let SATS=(sensor.satellites||[]).slice();
   [...present].sort().forEach(s=>{ if(!SATS.includes(s)) SATS.push(s); });
+  if(!SATS.length) SATS=[...present].sort();
   const yOf={}; SATS.forEach((s,i)=>yOf[s]=i);          // 0 = top lane (y-axis reversed)
 
   // one line-segment trace per band draws all its bars; a hidden marker trace at
@@ -529,7 +542,10 @@ function renderTimeline(aois){
   const barTrace=(name,col,d,muted)=>({ name,type:'scatter',mode:'lines',x:d.x,y:d.y,
     line:{color:col,width:muted?10:13},opacity:muted?.5:.98,hoverinfo:'skip',showlegend:true });
   BANDS.forEach(([nm,col],i)=>{ if(seg[i].x.length) traces.push(barTrace(nm,col,seg[i],false)); });
-  if(nonop.x.length) traces.push(barTrace('non-operational (DRAG05)','#9aa7b4',nonop,true));
+  if(nonop.x.length){
+    const op=sensor.operational||{}; const nn=SATS.filter(s=>op[s]===false);
+    traces.push(barTrace(`non-operational${nn.length?` (${nn.join(', ')})`:''}`,'#9aa7b4',nonop,true));
+  }
   traces.push({type:'scatter',mode:'text',x:lab.x,y:lab.y,text:lab.t,textposition:'top center',
     textfont:{size:9.5,color:'#9fb0c4',family:'JetBrains Mono'},hoverinfo:'skip',showlegend:false});
   traces.push({type:'scatter',mode:'markers',x:hov.x,y:hov.y,customdata:hov.cd,

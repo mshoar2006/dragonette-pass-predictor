@@ -964,7 +964,8 @@ def fetch_tles(satellites: dict[str, int] = SATELLITES,
 
     cache = _load_cache(cache_path)
     now = time.time()
-    if cache and now - cache.get("_ts", 0) < cache_ttl_hours * 3600:
+    if (cache and now - cache.get("_ts", 0) < cache_ttl_hours * 3600
+            and _cache_covers(cache, satellites)):
         return _cache_to_tles(cache, satellites), warnings
 
     # Negative caching: on failure the cache records `_fail_ts`, and we refuse to
@@ -975,7 +976,7 @@ def fetch_tles(satellites: dict[str, int] = SATELLITES,
     # [SESSION 2026-07-15]
     if (cache and cache.get("_fail_ts")
             and now - cache["_fail_ts"] < FETCH_RETRY_COOLDOWN_S
-            and _cache_to_tles(cache, satellites)):
+            and _cache_covers(cache, satellites)):
         age_h = (now - cache.get("_ts", 0)) / 3600.0
         warnings.append(
             f"Celestrak fetch failed {(now - cache['_fail_ts']) / 60.0:.0f} min ago; "
@@ -998,7 +999,8 @@ def fetch_tles(satellites: dict[str, int] = SATELLITES,
     fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with _FETCH_LOCK:                # one fetcher; the rest wait and reuse the result
         cache = _load_cache(cache_path)          # may have been filled while we waited
-        if cache and time.time() - cache.get("_ts", 0) < cache_ttl_hours * 3600:
+        if (cache and time.time() - cache.get("_ts", 0) < cache_ttl_hours * 3600
+                and _cache_covers(cache, satellites)):
             return _cache_to_tles(cache, satellites), warnings
         try:
             for name, catnr in satellites.items():
@@ -1085,6 +1087,14 @@ def _record_fetch_failure(path: Path) -> None:
         _write_cache_atomic(path, blob)
     except Exception:
         pass  # best-effort; a failed failure-record must never mask the real error
+
+
+def _cache_covers(cache: dict, satellites: dict[str, int]) -> bool:
+    """True only if the cache holds every requested satellite. The cache is one
+    file shared across sensor profiles, so a run that fetched Dragonette leaves it
+    'fresh' but without LANDSAT8/9 — the fresh-cache short-circuit must check
+    coverage or it serves (or crashes on) the wrong constellation. [SESSION 2026-07-20]"""
+    return bool(cache) and all(cache.get(name) for name in satellites)
 
 
 def _cache_to_tles(cache: dict, satellites: dict[str, int]) -> dict[str, TLE]:
@@ -1731,7 +1741,7 @@ def load_climatology(path: str | Path) -> dict:
 # --------------------------------------------------------------------------
 # JSON contract (digital-twin front-end; R9)
 # --------------------------------------------------------------------------
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "2.1"    # 2.1: added per-AOI "sensor" block (roster + operational)
 
 
 def _pass_json(p: Pass) -> dict:
@@ -1759,7 +1769,11 @@ def _pass_json(p: Pass) -> dict:
 
 
 def _one_prediction_json(pred: Prediction) -> dict:
+    prof = get_profile(pred.params.get("sensor"))
     return {
+        "sensor": {"key": prof.key, "display": prof.display,
+                   "satellites": list(prof.satellites),
+                   "operational": prof.operational},
         "aoi": {"name": pred.aoi.name,
                 "centroid_lat": round(pred.aoi.centroid_lat, 5),
                 "centroid_lon": round(pred.aoi.centroid_lon, 5),
@@ -1850,7 +1864,12 @@ def build_timeline_figure(preds: "list[Prediction] | Prediction",
     if isinstance(preds, Prediction):
         preds = [preds]
 
-    sats = list(SATELLITES)
+    # Lanes come from the active sensor profile, not the Dragonette constant, so
+    # the chart draws the right constellation (and greys the right non-op sats)
+    # for landsat / sentinel2 too. [SESSION 2026-07-20]
+    prof = get_profile(preds[0].params.get("sensor")) if preds else DRAGONETTE
+    operational = prof.operational
+    sats = list(prof.satellites)
     y_of = {name: i for i, name in enumerate(sats)}
     start = min(p.start_utc for p in preds)
     end = max(p.end_utc for p in preds)
@@ -1883,7 +1902,7 @@ def build_timeline_figure(preds: "list[Prediction] | Prediction",
                         fontsize=7.5, color="#33404f")
 
     ax.set_yticks(range(len(sats)))
-    ax.set_yticklabels([f"{s} (non-op)" if not OPERATIONAL.get(s, True) else s
+    ax.set_yticklabels([f"{s} (non-op)" if not operational.get(s, True) else s
                         for s in sats])
     ax.set_ylim(len(sats) - 0.4, -0.7)           # inverted: DRAG01 at top
     ax.set_xlim(x0, x1)
@@ -1917,7 +1936,10 @@ def build_timeline_figure(preds: "list[Prediction] | Prediction",
     # ---- legend ----------------------------------------------------------
     from matplotlib.patches import Patch
     handles = [Patch(facecolor=c, label=lab) for _, c, lab in _OFFNADIR_BANDS]
-    handles.append(Patch(facecolor="#9aa7b4", hatch="//", label="non-operational (DRAG05)"))
+    nonop_sats = [s for s in sats if not operational.get(s, True)]
+    if nonop_sats:
+        nonop_lbl = f"non-operational ({', '.join(nonop_sats)})"
+        handles.append(Patch(facecolor="#9aa7b4", hatch="//", label=nonop_lbl))
     if strip:
         handles += [Patch(facecolor=_CLOUD_BANDS[0][1], label="clear"),
                     Patch(facecolor=_CLOUD_BANDS[1][1], label="partly cloudy"),
@@ -1928,7 +1950,7 @@ def build_timeline_figure(preds: "list[Prediction] | Prediction",
 
     aois = ", ".join(dict.fromkeys(pr.aoi.name for pr in preds))
     title_ax = cax if strip else ax
-    title_ax.set_title(f"Dragonette imaging opportunities — {aois}\n"
+    title_ax.set_title(f"{prof.display} imaging opportunities — {aois}\n"
                        f"{start:%Y-%m-%d} to {end:%Y-%m-%d}  ·  number over bar = "
                        "off-nadir angle (°)", fontsize=11)
     if strip:                                    # tight_layout dislikes gridspec+legend

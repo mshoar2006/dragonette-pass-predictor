@@ -34,7 +34,7 @@ app = FastAPI(
     title="Dragonette Pass Predictor",
     description="Wyvern Dragonette (DRAG01–05) imaging opportunities over a KMZ AOI. "
                 "Geometric access only — tasking availability is separate; cloud is "
-                "advisory. JSON contract schema_version 2.0.",
+                "advisory. JSON contract schema_version 2.1.",
     version="2.0.0",
 )
 

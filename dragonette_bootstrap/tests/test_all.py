@@ -283,6 +283,32 @@ def test_fetch_with_fake_http_and_cache(tmp_path):
     assert got2["DRAG01"].line1 == got["DRAG01"].line1
 
 
+def test_fresh_cache_for_one_constellation_is_not_served_for_another(tmp_path):
+    """Regression: the TLE cache is a single file shared across sensor profiles.
+    A fresh cache full of Dragonette must NOT be served (nor crash with "Cache
+    missing") when a different constellation — Landsat / Sentinel-2 — is
+    requested; fetch_tles must fetch the roster actually asked for.
+    [SESSION 2026-07-20 — found switching sensors in the SPA]"""
+    tles = synth_constellation(START)
+    cache = tmp_path / "tle_cache.json"
+    P._save_cache(cache, tles)                     # a FRESH Dragonette-only cache
+    assert P._cache_covers(P._load_cache(cache), {n: t.catnr for n, t in tles.items()})
+
+    ref = next(iter(tles.values()))                # reuse valid TLE lines
+    served = {70001: f"SATX\n{ref.line1}\n{ref.line2}\n",
+              70002: f"SATY\n{ref.line1}\n{ref.line2}\n"}
+    calls = []
+
+    def fake_get(url):
+        catnr = int(url.split("CATNR=")[1].split("&")[0]); calls.append(catnr)
+        return served[catnr]
+
+    other = {"SATX": 70001, "SATY": 70002}
+    got, warn = P.fetch_tles(other, cache_path=cache, http_get=fake_get)
+    assert set(got) == {"SATX", "SATY"}            # returned the requested roster
+    assert sorted(calls) == [70001, 70002]         # fetched, not served from the DRAG cache
+
+
 def test_fetch_falls_back_to_stale_cache(tmp_path):
     tles = synth_constellation(START)
     sats = {n: t.catnr for n, t in tles.items()}

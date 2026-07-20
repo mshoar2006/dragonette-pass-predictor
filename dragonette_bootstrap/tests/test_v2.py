@@ -1010,7 +1010,7 @@ def test_api_multi_aoi_json(monkeypatch):
                           "all_polygons": "true"})
     assert r.status_code == 200
     body = r.json()
-    assert body["schema_version"] == "2.0" and len(body["aois"]) == 3
+    assert body["schema_version"] == "2.1" and len(body["aois"]) == 3
 
 
 # ---------------------------------------------------------------- R9 (DT contract)
@@ -1021,7 +1021,7 @@ PASS_KEYS = {"satellite", "tca_utc", "off_nadir_deg", "sun_elev_deg",
              "category", "operational", "node", "local_solar_time_h",
              "quality", "timing_sigma_s", "coverage_pct", "footprint_lonlat",
              "geometry"}
-SINGLE_KEYS = {"schema_version", "aoi", "window_utc", "passes", "marginal",
+SINGLE_KEYS = {"schema_version", "sensor", "aoi", "window_utc", "passes", "marginal",
                "nonoperational", "cloud_daily", "cloud_horizon_utc", "summary",
                "warnings", "params"}
 AOI_KEYS = {"name", "centroid_lat", "centroid_lon", "terrain_alt_m", "vertices_lonlat"}
@@ -1034,7 +1034,7 @@ CLOUD_KEYS = {"tier", "label", "total_pct", "low_pct", "mid_pct", "high_pct",
 def test_json_schema_version_and_single_shape():
     pred = _predict(SITEA_KMZ, "SITEA_100sqkm", max_off_nadir_deg=45.0)
     body = P.prediction_json([pred])
-    assert body["schema_version"] == "2.0"
+    assert body["schema_version"] == "2.1"
     assert set(body) == SINGLE_KEYS
     assert set(body["aoi"]) == AOI_KEYS
     assert body["passes"], "need a pass to check row shape"
@@ -1081,5 +1081,5 @@ def test_api_all_polygons_json(monkeypatch):
                           "all_polygons": "true"})
     assert r.status_code == 200
     body = r.json()
-    assert body["schema_version"] == "2.0"
+    assert body["schema_version"] == "2.1"
     assert len(body["aois"]) == 3

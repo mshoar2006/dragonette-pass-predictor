@@ -42,7 +42,7 @@ The propagation/geometry spine is validated against **reality**, not just tested
 
 Dragonette itself has no public scene archive, so its footprint is validated by
 inference — identical code path, different TLE — plus an independently validated
-orbit. See `dragonette_bootstrap/VALIDATION.md` for the full record.
+orbit.
 
 ## Quick start
 
@@ -50,10 +50,10 @@ The project lives in [`dragonette_bootstrap/`](dragonette_bootstrap/):
 
     cd dragonette_bootstrap
     pip install -r requirements.txt
-    python -m pytest tests/ -q                      # all green, fully offline
+    python -m pytest tests/ -q                      # offline suite (needs local test fixtures)
 
-    # CLI
-    python src/cli.py fixtures/SiteA.kmz --polygon SITEA_100sqkm \
+    # CLI — point it at your own KMZ/KML area of interest
+    python src/cli.py path/to/your-aoi.kmz \
       --alt 400 --tz Australia/Brisbane --sensor dragonette -o out.xlsx
 
     # Web app
@@ -65,7 +65,4 @@ The project lives in [`dragonette_bootstrap/`](dragonette_bootstrap/):
 |------|----------|
 | `dragonette_bootstrap/src/` | core physics (`passes.py`), CLI, FastAPI app, SPA |
 | `dragonette_bootstrap/tests/` | offline test suite |
-| `dragonette_bootstrap/fixtures/` | AOIs, real TLEs, captured validation payloads |
 | `dragonette_bootstrap/README.md` | full CLI/API/options reference |
-| `dragonette_bootstrap/DEVELOPMENT.md` | constraints, provenance, hard rules |
-| `dragonette_bootstrap/SPEC.md`, `METHOD.md`, `VALIDATION.md`, `CLOUD.md` | requirements, frozen physics, validation record, cloud design |

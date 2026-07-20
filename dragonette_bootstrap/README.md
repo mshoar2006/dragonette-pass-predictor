@@ -8,22 +8,17 @@ project teams and (b) versioned JSON for digital-twin integration.
 and cloud cover is advisory (never filters passes). Always re-run on fresh TLEs
 before committing a tasking order — SGP4 timing error grows with TLE age.
 
-Read `DEVELOPMENT.md` (constraints/provenance), `SPEC.md` (requirements),
-`METHOD.md` (frozen physics), and `CLOUD.md` (cloud design) before changing code.
-`METHODOLOGY_COMPARISON.md` benchmarks accuracy vs SaVoir / STK (bottom line:
-adequate — the TLE age dominates the error budget for every TLE-fed tool).
-
 ## Install
 
     pip install -r requirements.txt
-    python -m pytest tests/ -q            # expect: all green, fully offline
+    python -m pytest tests/ -q            # offline suite (needs local test fixtures)
 
 ## CLI
 
     python src/cli.py <kmz...> [options] -o out.xlsx
 
-    python src/cli.py fixtures/SiteA.kmz --polygon SITEA_100sqkm \
-      --alt 400 --tz Australia/Brisbane -o siteA.xlsx
+    python src/cli.py path/to/your-aoi.kmz --polygon <POLYGON_NAME> \
+      --alt 400 --tz Australia/Brisbane -o out.xlsx
 
 | Flag | Meaning |
 |------|---------|
@@ -38,7 +33,7 @@ adequate — the TLE age dominates the error budget for every TLE-fed tool).
 | `--include-nonoperational` / `--no-include-nonoperational` | show DRAG05 (default on, separated) or drop it |
 | `--cloud` | attach Open-Meteo cloud cover (3-tier; needs network) |
 | `--cloud-threshold %` | total-cloud % counted as "clear" for Tier-2 P(clear) (default 30) |
-| `--nadir-ellipsoid` | measure off-nadir from the WGS84 ellipsoid normal (≈0.2° from the validated geocentric baseline; opt-in — see METHODOLOGY_COMPARISON.md) |
+| `--nadir-ellipsoid` | measure off-nadir from the WGS84 ellipsoid normal (≈0.2° from the validated geocentric baseline; opt-in) |
 | `--tle-file PATH` | use a saved TLE/3LE file instead of Celestrak (offline/reproducible) |
 | `-o PATH` | output `.xlsx` |
 
@@ -71,7 +66,7 @@ files), `days`, `alt`, `tz`, `max_off_nadir`, `min_sun`, `polygon`,
 An ambiguous KMZ returns **422** with `{"error": ..., "polygons": [...]}`.
 
     # examples
-    curl -F kmz=@fixtures/SiteA.kmz -F polygon=SITEA_100sqkm \
+    curl -F kmz=@your-aoi.kmz -F polygon=<POLYGON_NAME> \
          -F alt=400 http://localhost:8000/predict -o out.xlsx
     curl -F kmz=@a.kmz -F kmz=@b.kmz -F all_polygons=true \
          http://localhost:8000/predict/json          # multi-AOI campaign
@@ -123,7 +118,7 @@ non-operational (grey, hatched) are visually distinct. Rendered with matplotlib,
 embedded as a **Timeline** sheet in every workbook and served at
 `POST /timeline.png`. Multiple AOIs share one combined campaign timeline.
 
-## Cloud cover (R6, three tiers — see CLOUD.md)
+## Cloud cover (R6, three tiers)
 
 Skill decays with lead time, so the tier is keyed off lead time from window start:
 
@@ -143,9 +138,9 @@ until the VG26003 clr% values are supplied.
 
 Offline tests use synthetic TLEs and `[SIMULATED]` Open-Meteo samples. Before
 any output is shared beyond the dev machine, run the one-time live check on a
-networked machine and record results in `VALIDATION.md`:
+networked machine and record the results:
 
-    python fetch_real_data.py        # real Celestrak TLEs + real Open-Meteo + Site A compare
+    python fetch_real_data.py        # real Celestrak TLEs + real Open-Meteo, compared to reference
 
 A restricted/CI sandbox cannot reach Celestrak/Open-Meteo (network allowlist), so
 this is a developer-machine step. Until it passes, all outputs are `[SIMULATED]`-grade.
@@ -155,7 +150,7 @@ this is a developer-machine step. Until it passes, all outputs are `[SIMULATED]`
 - `src/passes.py` — framework-free core (physics, cloud, timeline, xlsx, JSON)
 - `src/cli.py`, `src/app.py` — thin CLI + FastAPI wrappers
 - `src/sites_climatology.json` — Tier-3 base rates (placeholder)
-- `tests/` — offline suite (`test_all.py` v1 baseline + `test_v2.py` R4–R9)
-- `fixtures/` — real AOI KMZs, self-generated regression baseline sheet, synthetic demo
-  TLEs, `[SIMULATED]` Open-Meteo samples
+- `tests/` — offline suite (`test_all.py` v1 baseline + `test_v2.py` R4–R9). Runs
+  against local test fixtures (AOI KMZs, TLEs, captured API payloads) that are kept
+  out of this repo; supply your own to run the fixture-dependent tests.
 - `fetch_real_data.py` — one-command live-data + validation script

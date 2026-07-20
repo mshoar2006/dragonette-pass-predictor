@@ -20,3 +20,16 @@ dragonette_bootstrap/output/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Local-only: sensitive AOI/customer data + internal methodology docs — kept on
+# the developer's machine, never in the public repo.
+dragonette_bootstrap/fixtures/
+dragonette_bootstrap/CLAUDE.md
+dragonette_bootstrap/DEVELOPMENT.md
+dragonette_bootstrap/IMPROVEMENTS.md
+dragonette_bootstrap/METHOD.md
+dragonette_bootstrap/METHODOLOGY_COMPARISON.md
+dragonette_bootstrap/SPEC.md
+dragonette_bootstrap/VALIDATION.md
+dragonette_bootstrap/CLOUD.md
+dragonette_bootstrap/PROMPT.md

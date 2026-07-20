@@ -72,8 +72,10 @@ def _run(kmz: "UploadFile | list[UploadFile]", days: float, alt: float, tz: str,
          nadir_ellipsoid: bool = False,
          start: str | None = None,
          sensor: str | None = None) -> list[P.Prediction]:
+    combined = (sensor or "").strip().lower() in (P.COMBINED_KEY, "combined")
     try:
-        profile = P.get_profile(sensor)
+        if not combined:
+            profile = P.get_profile(sensor)   # validates the key
         P.validate_window(days)
         ZoneInfo(tz)                     # fail fast, not after minutes of propagation
         start_utc = P.parse_start_utc(start)
@@ -84,6 +86,17 @@ def _run(kmz: "UploadFile | list[UploadFile]", days: float, alt: float, tz: str,
     uploads = kmz if isinstance(kmz, list) else [kmz]     # R8: one or many AOIs
 
     def one(data: bytes, name: str | None) -> P.Prediction:
+        if combined:
+            # Predict every constellation for this AOI and merge. Each push-broom
+            # uses its OWN native envelope (max_off_nadir/min_sun = None): a fixed
+            # nadir sensor cannot roll to the Dragonette 20 deg tasking envelope,
+            # so applying it would invent out-of-FOV "opportunities".
+            parts = [P.predict(data, days=days, start_utc=start_utc, terrain_alt_m=alt,
+                               profile=prof, polygon_name=name,
+                               include_nonoperational=include_nonoperational,
+                               nadir_ellipsoid=nadir_ellipsoid)
+                     for prof in (P.DRAGONETTE, P.LANDSAT, P.SENTINEL2)]
+            return P.merge_predictions(parts)
         return P.predict(data, days=days, start_utc=start_utc, terrain_alt_m=alt,
                          profile=profile,
                          max_off_nadir_deg=max_off_nadir, min_sun_elev_deg=min_sun,
@@ -155,7 +168,9 @@ def predict_xlsx(
         raise HTTPException(422, f"Bad timezone or report error: {exc}") from exc
     stem = ("campaign" if len(kmz) > 1
             else (kmz[0].filename or "aoi").rsplit(".", 1)[0])
-    fname = f"{stem}_dragonette_passes_{datetime.now(timezone.utc):%Y%m%d}.xlsx"
+    tag = (sensor or "dragonette").strip().lower()
+    tag = "allsensors" if tag in (P.COMBINED_KEY, "combined") else tag
+    fname = f"{stem}_{tag}_passes_{datetime.now(timezone.utc):%Y%m%d}.xlsx"
     return StreamingResponse(
         io.BytesIO(blob),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -1048,6 +1048,51 @@ def test_json_multi_shape():
     assert all(set(a) == SINGLE_KEYS - {"schema_version"} for a in body["aois"])
 
 
+# ---------------------------------------------------- combined "all sensors" view
+def _empty_pred(sensor):
+    aoi = P.parse_kmz(SITEC_KMZ)
+    return P.Prediction(aoi=aoi, start_utc=START, end_utc=START + P.timedelta(days=14),
+                        params={"sensor": sensor, "max_off_nadir_deg": 20,
+                                "min_sun_elev_deg": 20})
+
+
+def test_combined_roster_unions_every_profile():
+    sats, op = P.combined_roster()
+    assert set(sats) == {"DRAG01", "DRAG02", "DRAG03", "DRAG04", "DRAG05",
+                         "LANDSAT8", "LANDSAT9", "SENTINEL2A", "SENTINEL2B", "SENTINEL2C"}
+    # non-op flags survive the union — DRAG05 and LANDSAT8 must stay non-taskable
+    assert op["DRAG05"] is False and op["LANDSAT8"] is False
+    assert op["LANDSAT9"] is True and op["SENTINEL2A"] is True
+
+
+def test_merge_predictions_marks_all_and_exposes_union_roster():
+    parts = [_empty_pred("dragonette"), _empty_pred("landsat"), _empty_pred("sentinel2")]
+    merged = P.merge_predictions(parts)
+    assert merged.params["sensor"] == "all"
+    body = P.prediction_json([merged])
+    assert body["sensor"]["key"] == "all"
+    assert set(body["sensor"]["satellites"]) == set(P.combined_roster()[0])
+    assert body["sensor"]["operational"]["LANDSAT8"] is False
+
+
+def test_combined_timeline_figure_labels_every_constellation():
+    merged = P.merge_predictions([_empty_pred(k) for k in
+                                  ("dragonette", "landsat", "sentinel2")])
+    fig, ax = P.build_timeline_figure(merged)
+    labels = [t.get_text() for t in ax.get_yticklabels()]
+    assert any(l.startswith("LANDSAT9") for l in labels)
+    assert "LANDSAT8 (non-op)" in labels and "DRAG05 (non-op)" in labels
+
+
+def test_combined_method_sheet_describes_all_sensors_not_one():
+    merged = P.merge_predictions([_empty_pred(k) for k in
+                                  ("dragonette", "landsat", "sentinel2")])
+    rows = dict(P._method_rows(merged))
+    assert "LANDSAT9=49260" in rows["Satellites (NORAD)"]
+    assert "SENTINEL2A=40697" in rows["Satellites (NORAD)"]
+    assert "DRAG01=56225" in rows["Satellites (NORAD)"]
+
+
 def test_json_cloud_block_shape():
     pred = _predict(SITEA_KMZ, "SITEA_100sqkm", max_off_nadir_deg=60.0,
                     marginal_off_nadir_deg=60.0)

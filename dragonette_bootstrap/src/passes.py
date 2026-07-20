@@ -193,6 +193,10 @@ SENTINEL2 = SensorProfile(
 PROFILES: dict[str, SensorProfile] = {p.key: p for p in (DRAGONETTE, LANDSAT, SENTINEL2)}
 
 
+COMBINED_KEY = "all"     # the "show every constellation at once" pseudo-sensor
+COMBINED_DISPLAY = "All sensors (Dragonette + Landsat + Sentinel-2)"
+
+
 def get_profile(key: str | None) -> SensorProfile:
     """Look up a sensor profile by key; None/empty => Dragonette (the default)."""
     if not key:
@@ -202,6 +206,17 @@ def get_profile(key: str | None) -> SensorProfile:
     except KeyError:
         raise ValueError(
             f"unknown sensor {key!r}; choose one of {', '.join(sorted(PROFILES))}") from None
+
+
+def combined_roster() -> tuple[dict[str, int], dict[str, bool]]:
+    """Union of every profile's satellites + operational map, ordered Dragonette,
+    Landsat, Sentinel-2 — the lane roster for the combined 'all sensors' view."""
+    sats: dict[str, int] = {}
+    op: dict[str, bool] = {}
+    for p in (DRAGONETTE, LANDSAT, SENTINEL2):
+        sats.update(p.satellites)
+        op.update(p.operational)
+    return sats, op
 
 CELESTRAK_URL = "https://celestrak.org/NORAD/elements/gp.php?CATNR={catnr}&FORMAT=TLE"
 DEFAULT_CACHE = Path.home() / ".cache" / "dragonette_tles.json"
@@ -1191,6 +1206,28 @@ def campaign_summary(pred: "Prediction", window_days: float = 3.0) -> dict:
     return out
 
 
+def merge_predictions(parts: "list[Prediction]") -> "Prediction":
+    """Merge same-AOI predictions from several sensor profiles into one, for the
+    combined 'all sensors' view. Concatenates the pass buckets (time-sorted) and
+    marks the result sensor='all' so the timeline and JSON build a union roster.
+    Cloud is attached afterwards, on the merged result. [SESSION 2026-07-20]"""
+    base = parts[0]
+    by_time = lambda ps: sorted(ps, key=lambda p: p.tca_utc)
+    merged = Prediction(
+        aoi=base.aoi,
+        start_utc=min(p.start_utc for p in parts),
+        end_utc=max(p.end_utc for p in parts),
+        passes=by_time([p for part in parts for p in part.passes]),
+        marginal=by_time([p for part in parts for p in part.marginal]),
+        nonoperational=by_time([p for part in parts for p in part.nonoperational]),
+        warnings=list(dict.fromkeys(w for part in parts for w in part.warnings)),
+        params={**base.params, "sensor": COMBINED_KEY,
+                "sensor_display": COMBINED_DISPLAY},
+    )
+    merged.summary = campaign_summary(merged)
+    return merged
+
+
 def _off_nadir_series(sat: Satrec, jd: np.ndarray, fr: np.ndarray,
                       site_ecef: np.ndarray
                       ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[int, int]]:
@@ -1772,12 +1809,23 @@ def _pass_json(p: Pass) -> dict:
     return d
 
 
+def _sensor_block(pred: Prediction) -> dict:
+    """The sensor roster the front-end draws lanes from — a single profile, or the
+    union for the combined 'all' view."""
+    key = pred.params.get("sensor")
+    if key == COMBINED_KEY:
+        sats, op = combined_roster()
+        return {"key": COMBINED_KEY,
+                "display": pred.params.get("sensor_display", COMBINED_DISPLAY),
+                "satellites": list(sats), "operational": op}
+    prof = get_profile(key)
+    return {"key": prof.key, "display": prof.display,
+            "satellites": list(prof.satellites), "operational": prof.operational}
+
+
 def _one_prediction_json(pred: Prediction) -> dict:
-    prof = get_profile(pred.params.get("sensor"))
     return {
-        "sensor": {"key": prof.key, "display": prof.display,
-                   "satellites": list(prof.satellites),
-                   "operational": prof.operational},
+        "sensor": _sensor_block(pred),
         "aoi": {"name": pred.aoi.name,
                 "centroid_lat": round(pred.aoi.centroid_lat, 5),
                 "centroid_lon": round(pred.aoi.centroid_lon, 5),
@@ -1868,12 +1916,17 @@ def build_timeline_figure(preds: "list[Prediction] | Prediction",
     if isinstance(preds, Prediction):
         preds = [preds]
 
-    # Lanes come from the active sensor profile, not the Dragonette constant, so
-    # the chart draws the right constellation (and greys the right non-op sats)
-    # for landsat / sentinel2 too. [SESSION 2026-07-20]
-    prof = get_profile(preds[0].params.get("sensor")) if preds else DRAGONETTE
-    operational = prof.operational
-    sats = list(prof.satellites)
+    # Lanes come from the active sensor profile (or the union for the combined
+    # view), not the Dragonette constant, so the chart draws the right
+    # constellation(s) and greys the right non-op sats. [SESSION 2026-07-20]
+    key = preds[0].params.get("sensor") if preds else None
+    if key == COMBINED_KEY:
+        sats_map, operational = combined_roster()
+        sats = list(sats_map)
+        display = preds[0].params.get("sensor_display", COMBINED_DISPLAY)
+    else:
+        prof = get_profile(key) if preds else DRAGONETTE
+        operational, sats, display = prof.operational, list(prof.satellites), prof.display
     y_of = {name: i for i, name in enumerate(sats)}
     start = min(p.start_utc for p in preds)
     end = max(p.end_utc for p in preds)
@@ -1954,7 +2007,7 @@ def build_timeline_figure(preds: "list[Prediction] | Prediction",
 
     aois = ", ".join(dict.fromkeys(pr.aoi.name for pr in preds))
     title_ax = cax if strip else ax
-    title_ax.set_title(f"{prof.display} imaging opportunities — {aois}\n"
+    title_ax.set_title(f"{display} imaging opportunities — {aois}\n"
                        f"{start:%Y-%m-%d} to {end:%Y-%m-%d}  ·  number over bar = "
                        "off-nadir angle (°)", fontsize=11)
     if strip:                                    # tight_layout dislikes gridspec+legend
@@ -2082,11 +2135,48 @@ def _nonop_note() -> str:
             "commissioning with Wyvern before tasking. [SESSION 2026-07-14]")
 
 
+def _combined_method_rows(pred: Prediction) -> list[tuple[str, str]]:
+    """Method sheet for the combined 'all sensors' workbook: one that describes
+    every constellation and its own native envelope, rather than a single
+    profile. [SESSION 2026-07-20]"""
+    aoi = pred.aoi
+    sats, _ = combined_roster()
+
+    def envelope(p: SensorProfile) -> str:
+        return (f"{p.display}: |off-nadir| ≤ {p.max_off_nadir_deg:g}°"
+                + ("" if p.agile else " (FOV half-angle, fixed nadir push-broom)"))
+
+    return [
+        ("Generated (UTC)", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),
+        ("Sensor", COMBINED_DISPLAY + " — Dragonette is taskable; Landsat and "
+                   "Sentinel-2 are fixed nadir push-brooms imaging on their own cycle"),
+        ("AOI polygon", aoi.name),
+        ("AOI centroid", f"{abs(aoi.centroid_lat):.5f} {'S' if aoi.centroid_lat < 0 else 'N'}, "
+                         f"{abs(aoi.centroid_lon):.5f} {'W' if aoi.centroid_lon < 0 else 'E'}"),
+        ("Terrain height assumed (m)", aoi.terrain_alt_m),
+        ("Window (UTC)", f"{pred.start_utc:%Y-%m-%d %H:%M} to {pred.end_utc:%Y-%m-%d %H:%M}"),
+        ("Satellites (NORAD)", ", ".join(f"{k}={v}" for k, v in sats.items())),
+        ("Access filter (per sensor)",
+         "  |  ".join(envelope(p) for p in (DRAGONETTE, LANDSAT, SENTINEL2))),
+        ("TLE source", "Celestrak GP catalogue, propagated with SGP4"),
+        ("Frames", "TEME→ECEF via GMST (IAU 1982) rotation"),
+        ("Off-nadir", "Angle at spacecraft between geocentric nadir and LOS to AOI centroid; "
+                      "TCA by golden-section to 0.1 s; natural right-of-track sign (Wyvern "
+                      "convention, no flip)"),
+        ("Sun elevation", "Astronomical Almanac low-precision solar position (~0.01°) at AOI at TCA"),
+        ("Caveat", "Geometric access only. Dragonette rows are taskable opportunities; "
+                   "Landsat/Sentinel-2 rows are PREDICTED ACQUISITIONS on a fixed cycle, not "
+                   "taskable. Cloud cover and operator duty cycle are separate constraints."),
+    ]
+
+
 def _method_rows(pred: Prediction) -> list[tuple[str, str]]:
     aoi = pred.aoi
     # Read the sensor off the prediction, never the Dragonette module constants —
     # a Landsat workbook that lists DRAG01-05 and a 20 deg envelope is worse than
     # no Method sheet at all. [SESSION 2026-07-15]
+    if pred.params.get("sensor") == COMBINED_KEY:
+        return _combined_method_rows(pred)
     prof = get_profile(pred.params.get("sensor"))
     return [
         ("Generated (UTC)", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),

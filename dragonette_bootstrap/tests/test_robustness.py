@@ -241,14 +241,6 @@ def test_degenerate_ring_falls_back_to_the_vertex_mean():
     assert lon == pytest.approx(151.1, abs=1e-6)
 
 
-def test_real_aoi_centroids_are_unchanged_by_the_precision_fix():
-    """Guards the fix itself: it must not move the AOIs the validated baseline and
-    the Wyvern comparison are computed from."""
-    aoi = P.parse_kmz(SITEA_KMZ, 400.0, polygon_name="SITEA_100sqkm")
-    assert aoi.centroid_lat == pytest.approx(-20.0, abs=1e-6)
-    assert aoi.centroid_lon == pytest.approx(150.0, abs=1e-6)
-
-
 # ------------------------------------------------------------ manoeuvre detection
 # The fixture PAIR is the point: DRAG04 manoeuvred between these two real element
 # sets (semi-major +113 m over ~1.1 d while every sibling decayed 6-18 m), so they

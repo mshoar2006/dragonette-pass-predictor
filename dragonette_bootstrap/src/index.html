@@ -491,33 +491,49 @@ function renderResults(aois){
     R.append(card);
   });
 }
-/* interactive Plotly timeline (matches dark theme; replaces the PNG in-app) */
-const BANDS=[['0–5° near nadir','#22C55E'],['5–12° moderate','#F5A524'],['>12° high roll','#F5566A']];
+/* interactive Plotly timeline — coloured bars per pass, one lane per satellite,
+   off-nadir angle above each bar. Matches the report PNG (build_timeline_figure)
+   and the Wyvern-style opportunity charts. [SESSION 2026-07-20] */
+const BANDS=[['0–5° near nadir','#22C55E'],['5–12° moderate roll','#F5A524'],['over 12° high roll','#F5566A']];
+const BAR_HALF=0.34;                       // lane half-height a bar occupies
 function renderTimeline(aois){
   const c=$('tlcard'); c.innerHTML=''; c.append(el('h3',null,'Timeline — imaging opportunities'));
   if(typeof Plotly==='undefined'){ c.append(el('div','muted','timeline unavailable')); return; }
-  const div=el('div'); div.style.height='320px'; c.append(div);
-  // satellite rows: actual names present, sorted
-  const SATS=[...new Set(aois.flatMap(a=>a.passes.concat(a.marginal,a.nonoperational||[]).map(p=>p.satellite)))].sort();
-  const traces=[];
-  const mk=(name,color,pts,nonop)=>({ name, type:'scatter', mode:'markers+text', x:pts.map(p=>p.x), y:pts.map(p=>p.y),
-    text:pts.map(p=>p.t), textposition:'top center', textfont:{size:9,color:'#8a9bb0',family:'JetBrains Mono'},
-    customdata:pts.map(p=>p.cd), marker:{symbol:'square',size:15,color,line:{width:nonop?1.5:.6,color:nonop?'#9aa7b4':'#0B0F17'},opacity:nonop?.5:.98},
-    hovertemplate:'%{customdata}<extra></extra>', showlegend:true });
-  const bandPts={0:[],1:[],2:[]}, nonopPts=[];
+  const div=el('div'); div.style.height='340px'; c.append(div);
+  // satellite lanes: full constellation top-to-bottom so absent sats still show a row
+  const present=new Set(aois.flatMap(a=>a.passes.concat(a.marginal,a.nonoperational||[]).map(p=>p.satellite)));
+  let SATS=['DRAG01','DRAG02','DRAG03','DRAG04','DRAG05'].filter(s=>present.has(s));
+  [...present].sort().forEach(s=>{ if(!SATS.includes(s)) SATS.push(s); });
+  const yOf={}; SATS.forEach((s,i)=>yOf[s]=i);          // 0 = top lane (y-axis reversed)
+
+  // one line-segment trace per band draws all its bars; a hidden marker trace at
+  // each bar carries the rich hover; a text trace prints the angle above the bar.
+  const seg={0:{x:[],y:[]},1:{x:[],y:[]},2:{x:[],y:[]}}, nonop={x:[],y:[]};
+  const hov={x:[],y:[],cd:[]}, lab={x:[],y:[],t:[]};
   aois.forEach(a=>{
-    const push=(p,arr,nonop)=>{ const off=p.off_nadir_deg, ab=Math.abs(off); const g=p.geometry||{};
-      const cd=`<b>${p.satellite}</b>${nonop?' (non-op)':''} · ${p.quality||''}<br>${p.tca_utc.slice(0,19).replace('T',' ')}Z`+
+    const add=(p,isNonop)=>{ const off=p.off_nadir_deg, ab=Math.abs(off), g=p.geometry||{}, yc=yOf[p.satellite];
+      if(yc===undefined) return;
+      const cd=`<b>${p.satellite}</b>${isNonop?' (non-op)':''} · ${p.quality||''}<br>${p.tca_utc.slice(0,19).replace('T',' ')}Z`+
         `<br>off-nadir ${off>0?'+':''}${off.toFixed(1)}° · sun ${p.sun_elev_deg.toFixed(1)}°`+
         `<br>eff GSD ${g.effective_gsd_m??'?'} m · ${p.node||''}`+
         `<br>glint ${g.sun_glint_deg??'?'}° (${g.glint_risk??'?'}) · TCA ±${p.timing_sigma_s??'?'}s`+
         (p.cloud?`<br>cloud: ${cloudText(p.cloud)}${p.cloud.cirrus_flag?' · cirrus':''}`:'');
-      arr.push({x:p.tca_utc, y:p.satellite, t:ab.toFixed(1), cd}); };
-    a.passes.concat(a.marginal).forEach(p=>{ const ab=Math.abs(p.off_nadir_deg); push(p, bandPts[ab<=5?0:ab<=12?1:2], false); });
-    (a.nonoperational||[]).forEach(p=>push(p,nonopPts,true));
+      const dst=isNonop?nonop:seg[ab<=5?0:ab<=12?1:2];
+      dst.x.push(p.tca_utc,p.tca_utc,null); dst.y.push(yc-BAR_HALF,yc+BAR_HALF,null);
+      hov.x.push(p.tca_utc); hov.y.push(yc); hov.cd.push(cd);
+      lab.x.push(p.tca_utc); lab.y.push(yc-BAR_HALF-0.14); lab.t.push(ab.toFixed(1)); };
+    a.passes.concat(a.marginal).forEach(p=>add(p,false));
+    (a.nonoperational||[]).forEach(p=>add(p,true));
   });
-  BANDS.forEach(([nm,col],i)=>{ if(bandPts[i].length) traces.push(mk(nm,col,bandPts[i],false)); });
-  if(nonopPts.length) traces.push(mk('non-operational (DRAG05)','#9aa7b4',nonopPts,true));
+  const traces=[];
+  const barTrace=(name,col,d,muted)=>({ name,type:'scatter',mode:'lines',x:d.x,y:d.y,
+    line:{color:col,width:muted?10:13},opacity:muted?.5:.98,hoverinfo:'skip',showlegend:true });
+  BANDS.forEach(([nm,col],i)=>{ if(seg[i].x.length) traces.push(barTrace(nm,col,seg[i],false)); });
+  if(nonop.x.length) traces.push(barTrace('non-operational (DRAG05)','#9aa7b4',nonop,true));
+  traces.push({type:'scatter',mode:'text',x:lab.x,y:lab.y,text:lab.t,textposition:'top center',
+    textfont:{size:9.5,color:'#9fb0c4',family:'JetBrains Mono'},hoverinfo:'skip',showlegend:false});
+  traces.push({type:'scatter',mode:'markers',x:hov.x,y:hov.y,customdata:hov.cd,
+    marker:{size:16,color:'rgba(0,0,0,0)'},hovertemplate:'%{customdata}<extra></extra>',showlegend:false});
 
   // cloud shading (single AOI): faint vertical bands per day, tinted by cloud %
   const shapes=[]; const anns=[]; const a0=aois[0];
@@ -531,14 +547,15 @@ function renderTimeline(aois){
       anns.push({x:a0.cloud_horizon_utc,y:1.02,xref:'x',yref:'paper',text:'▸ beyond cloud forecast',showarrow:false,
         font:{size:9,color:'#6B7A8F'},xanchor:'left'}); }
   }
-  const layout={ height:320, margin:{l:74,r:16,t:10,b:34}, paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+  const layout={ height:340, margin:{l:74,r:16,t:10,b:38}, paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
     font:{family:'Inter,system-ui,sans-serif',color:'#A7B4C6',size:11},
     xaxis:{type:'date',gridcolor:'#232C3B',zeroline:false,range:[a0.window_utc[0],a0.window_utc[1]],
       title:{text:'Date (UTC)',font:{size:10,color:'#6B7A8F'}}},
-    yaxis:{type:'category',categoryorder:'array',categoryarray:SATS.slice().reverse(),
+    yaxis:{range:[SATS.length-0.5,-0.8],tickvals:SATS.map((s,i)=>i),ticktext:SATS,
       gridcolor:'#1A212E',zeroline:false,ticksuffix:'  '},
-    shapes, annotations:anns, hoverlabel:{bgcolor:'#141A24',bordercolor:'#2E394B',font:{family:'JetBrains Mono',size:11,color:'#EAF0F7'}},
-    legend:{orientation:'h',y:-0.18,x:.5,xanchor:'center',font:{size:10}} };
+    shapes, annotations:anns, hovermode:'closest',
+    hoverlabel:{bgcolor:'#141A24',bordercolor:'#2E394B',font:{family:'JetBrains Mono',size:11,color:'#EAF0F7'}},
+    legend:{orientation:'h',y:-0.2,x:.5,xanchor:'center',font:{size:10}} };
   Plotly.newPlot(div,traces,layout,{displayModeBar:false,responsive:true});
 }
 function cloudText(c){ if(c.tier===1&&c.total_pct!=null) return c.total_pct+'% total'; if(c.tier===2&&c.p_clear!=null) return 'P(clear) '+c.p_clear.toFixed(2); if(c.tier===3) return 'climatology'; return 'n/a'; }

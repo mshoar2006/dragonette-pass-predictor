@@ -1,5 +1,7 @@
 # Dragonette Pass Predictor
 
+[![CI](https://github.com/mshoar2006/dragonette-pass-predictor/actions/workflows/ci.yml/badge.svg)](https://github.com/mshoar2006/dragonette-pass-predictor/actions/workflows/ci.yml)
+
 Predicts satellite imaging opportunities over an area of interest (AOI) supplied
 as KMZ/KML, and produces a spreadsheet for research teams plus versioned JSON for
 digital-twin integration. Built around **Wyvern Dragonette** (DRAG01–05), with

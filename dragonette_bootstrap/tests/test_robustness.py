@@ -222,7 +222,7 @@ def test_antimeridian_polygon_survives_the_whole_kmz_path():
 def test_small_polygon_centroid_stays_precise(half, label):
     """The shoelace cross terms are ~lon*lat (~4100 here) while the signal is
     ~1e-4, so the naive form catastrophically cancelled: a 20 m AOI erred 53 m —
-    larger than the AOI, 10x the 5.3 m GSD — and a 2 m AOI erred 9.3 km. CLAUDE.md
+    larger than the AOI, 10x the 5.3 m GSD — and a 2 m AOI erred 9.3 km. DEVELOPMENT.md
     puts real AOIs at 2.5 ha and up, but a single-plot trial site is plausible.
     [SESSION 2026-07-15]"""
     clat, clon = -20.0, 150.0
@@ -386,7 +386,7 @@ def test_cache_write_is_atomic_and_leaves_no_temp_files(tmp_path):
 # ---------------------------------------------- fetch_real_data validation verdict
 def test_fetch_real_data_validation_can_actually_fail():
     """It printed a prose verdict ("PASS if ...") and exited 0 regardless — so it
-    reported success whether every sign had flipped or nothing matched. CLAUDE.md
+    reported success whether every sign had flipped or nothing matched. DEVELOPMENT.md
     gates the project's grade on this script; validation that cannot fail is not
     validation. [SESSION 2026-07-15]"""
     sys.path.insert(0, str(ROOT))

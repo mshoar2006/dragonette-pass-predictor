@@ -3,7 +3,7 @@
 
 # Binary fixtures — MUST never be line-ending converted. These are not just
 # assets: regression_baseline_*.xlsx is the artifact tests/test_regression_baseline.py
-# compares against to pin CLAUDE.md hard constraint 1 (the off-nadir sign), and
+# compares against to pin DEVELOPMENT.md hard constraint 1 (the off-nadir sign), and
 # the .kmz files are the AOI inputs the whole suite runs on. A CRLF rewrite would
 # corrupt the zip containers and silently break validation.
 *.kmz  binary

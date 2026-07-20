@@ -105,7 +105,7 @@ def test_ordinary_names_survive_sanitisation_unchanged():
 
 def test_formula_like_aoi_name_is_not_a_live_formula_in_xlsx(tmp_path):
     """openpyxl infers a leading '=' as a formula, so a polygon named
-    `=cmd|'/c calc'!A1` would ship a live DDE payload in a workbook CLAUDE.md
+    `=cmd|'/c calc'!A1` would ship a live DDE payload in a workbook DEVELOPMENT.md
     says is circulated to research teams. [SESSION 2026-07-15]"""
     from openpyxl import load_workbook
     payload = "=cmd|'/c calc'!A1"
@@ -749,7 +749,7 @@ def test_pushbroom_keeps_the_aois_along_track_station():
 def test_agile_coverage_stays_centred_on_the_aoi():
     """The agile model is unchanged and still deliberately AOI-centred: a rolling
     sensor points at the target, so coverage asks 'does my AOI fit cross-track'.
-    This is the behaviour CLAUDE.md records as mislabelled-not-broken; it is a
+    This is the behaviour DEVELOPMENT.md records as mislabelled-not-broken; it is a
     human's call to rename or re-model, so it is pinned here, not changed."""
     r_t, v_t, theta = _equatorial_state(525.0)
     aoi = _aoi_at_cross_track_offset(r_t, v_t, theta, 95.0)

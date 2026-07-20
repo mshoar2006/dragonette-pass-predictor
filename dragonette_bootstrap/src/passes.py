@@ -55,7 +55,7 @@ SATELLITES: dict[str, int] = {
 # Operational status lives ONLY here so commissioning DRAG05 is a one-line flip.
 # [SESSION 2026-07-14, the mission contact] DRAG05 (NORAD 66694) is NOT yet operational:
 # predicted, but presented as non-taskable — badged, kept out of headline counts,
-# and never mixed inline with operational satellites (CLAUDE.md hard constraint 3).
+# and never mixed inline with operational satellites (DEVELOPMENT.md hard constraint 3).
 # [PLACEHOLDER] DRAG05 commissioning date — confirm with Wyvern, then set True.
 OPERATIONAL: dict[str, bool] = {name: True for name in SATELLITES}
 OPERATIONAL["DRAG05"] = False
@@ -1303,7 +1303,7 @@ def predict(kmz_bytes: bytes,
 
     Non-operational satellites (OPERATIONAL[name] is False, e.g. DRAG05) are
     predicted but routed to `pred.nonoperational` — never `passes`/`marginal` —
-    so they are never counted or shown as taskable (R5, CLAUDE.md constraint 3).
+    so they are never counted or shown as taskable (R5, DEVELOPMENT.md constraint 3).
     Set include_nonoperational=False to drop them entirely.
 
     nadir_ellipsoid=True measures off-nadir from the WGS84 ellipsoid normal
@@ -2098,7 +2098,7 @@ def _cell(ws, row: int, col: int, value, font):
 
     openpyxl infers a leading '=' as a formula, so an AOI name scraped from a
     KMZ (e.g. `=cmd|'/c calc'!A1`) would land in the workbook as an executable
-    DDE payload — in a file CLAUDE.md says is circulated to research teams.
+    DDE payload — in a file DEVELOPMENT.md says is circulated to research teams.
     Forcing the cell to text makes Excel render it verbatim instead. Leading
     '+', '-' and '@' need no handling: openpyxl already stores those as text
     [VERIFIED 2026-07-15]. [SESSION 2026-07-15]

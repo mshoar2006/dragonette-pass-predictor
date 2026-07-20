@@ -8,7 +8,7 @@ project teams and (b) versioned JSON for digital-twin integration.
 and cloud cover is advisory (never filters passes). Always re-run on fresh TLEs
 before committing a tasking order — SGP4 timing error grows with TLE age.
 
-Read `CLAUDE.md` (constraints/provenance), `SPEC.md` (requirements),
+Read `DEVELOPMENT.md` (constraints/provenance), `SPEC.md` (requirements),
 `METHOD.md` (frozen physics), and `CLOUD.md` (cloud design) before changing code.
 `METHODOLOGY_COMPARISON.md` benchmarks accuracy vs SaVoir / STK (bottom line:
 adequate — the TLE age dominates the error budget for every TLE-fed tool).
@@ -147,8 +147,8 @@ networked machine and record results in `VALIDATION.md`:
 
     python fetch_real_data.py        # real Celestrak TLEs + real Open-Meteo + Site A compare
 
-The Claude.ai sandbox cannot reach Celestrak/Open-Meteo (allowlist), so this is
-a developer-machine step. Until it passes, all outputs are `[SIMULATED]`-grade.
+A restricted/CI sandbox cannot reach Celestrak/Open-Meteo (network allowlist), so
+this is a developer-machine step. Until it passes, all outputs are `[SIMULATED]`-grade.
 
 ## Contents
 

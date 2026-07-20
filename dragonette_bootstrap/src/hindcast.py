@@ -29,7 +29,7 @@ capped at 7 (day 8+ returns an empty series), so Tier 1 (0-5 d) is fully
 measurable, Tier 2 (5-15 d) only over days 5-7, and days 7-15 not at all by this
 route.
 
-Provenance per CLAUDE.md: endpoint behaviour tagged [VERIFIED] was exercised
+Provenance per DEVELOPMENT.md: endpoint behaviour tagged [VERIFIED] was exercised
 against the live APIs on 2026-07-15. Both are keyless. Network access is injected
 (`http_get`/`http_post`) following the `passes.py` `http_get` pattern, so the
 tests run fully offline.

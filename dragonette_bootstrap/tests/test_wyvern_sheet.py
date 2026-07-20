@@ -82,7 +82,7 @@ def _match(pred, row, tol_s=300.0):
 
 
 def test_sheet_contains_no_drag05_rows():
-    """Independent support for CLAUDE.md hard constraint 3: Wyvern does not offer
+    """Independent support for DEVELOPMENT.md hard constraint 3: Wyvern does not offer
     DRAG05 as a taskable opportunity either."""
     assert not [r for r in _rows() if r["sat"] == "DRAG05"]
 
@@ -94,7 +94,7 @@ def test_every_comparable_wyvern_pass_is_reproduced(pred):
 
 
 def test_off_nadir_sign_matches_wyvern_on_robust_passes(pred):
-    """THE external pin of CLAUDE.md hard constraint 1.
+    """THE external pin of DEVELOPMENT.md hard constraint 1.
 
     `test_regression_baseline.py` pins the sign against a self-generated
     artifact; this pins it against Wyvern's own published column. Flipping

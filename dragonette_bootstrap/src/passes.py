@@ -1278,6 +1278,54 @@ def _golden(f: Callable[[float], float], a: float, b: float,
     return (a + b) / 2
 
 
+def timing_sigma_s(tca: datetime, epoch: datetime) -> float:
+    """A4: TLE-age timing uncertainty (along-track drift -> timing jitter),
+    ~7.5 km/s converted km -> s.
+
+    abs(), not max(0.0, ...): SGP4 drift accumulates propagating backward
+    from the epoch just as it does forward, so a pass 2 d before epoch is
+    exactly as uncertain as one 2 d after. The previous max(0.0, ...) clamped
+    every pre-epoch pass to a flat 0.13 s regardless of how far before epoch
+    it actually was."""
+    age_d = abs((tca - epoch).total_seconds() / 86400.0)
+    return round((1.0 + 2.0 * age_d) / 7.5, 2)
+
+
+MAX_WINDOW_EPOCH_GAP_DAYS = 30.0
+
+
+def validate_epoch_window(tles: dict[str, "TLE"], start: datetime, end: datetime,
+                          max_days: float = MAX_WINDOW_EPOCH_GAP_DAYS) -> None:
+    """Reject a window that has drifted more than `max_days` from a loaded
+    TLE's epoch, in either direction.
+
+    Guards against the window silently meaning something other than "now":
+    a year-typo in --start (2024 instead of 2026) run against fresh Celestrak
+    elements, or a current window run against a stale saved TLE file. The
+    existing post-hoc staleness warning only checks the TLE-older-than-window
+    direction and is informational, not blocking, so a window that lands
+    entirely before every epoch (or decades either side of it) sailed through
+    with nothing louder than a generic "oldest TLE is old" note. SGP4 error
+    beyond ~30 d of the epoch is not a timing nuance, it is a wrong answer.
+
+    Raises ValueError naming every satellite whose TLE is that far from the
+    window if any are; does not touch satellites that are still in range."""
+    bad = []
+    for name, tle in tles.items():
+        if start <= tle.epoch_utc <= end:
+            continue
+        gap_days = min(abs((tle.epoch_utc - start).total_seconds()),
+                       abs((tle.epoch_utc - end).total_seconds())) / 86400.0
+        if gap_days > max_days:
+            bad.append(name)
+    if bad:
+        raise ValueError(
+            f"prediction window [{start:%Y-%m-%d} .. {end:%Y-%m-%d}] is more "
+            f"than {max_days:g} days from the loaded TLE epoch for "
+            f"{', '.join(sorted(bad))} — check --start for a year/date typo, "
+            "or that the TLE file matches the requested window.")
+
+
 def predict(kmz_bytes: bytes,
             days: float = 14.0,
             start_utc: datetime | None = None,
@@ -1332,6 +1380,8 @@ def predict(kmz_bytes: bytes,
     warnings: list[str] = []
     if tles is None:
         tles, warnings = fetch_tles(satellites, offline_file=offline_tle_file)
+
+    validate_epoch_window(tles, start, end)
 
     jd0, fr0 = dt_to_jd(start)
     n_steps = int(days * 86400.0 / coarse_step_s) + 1
@@ -1439,9 +1489,8 @@ def predict(kmz_bytes: bytes,
                                         gsd_nadir_m=prof.gsd_m)
             # A2: quality badge from sun elevation, off-nadir and glint.
             badge = _quality_badge(eta_mag, sun, geom["sun_glint_deg"])
-            # A4: TLE-age timing uncertainty (along-track drift → timing jitter)
-            age_d = max(0.0, (tca - tle.epoch_utc).total_seconds() / 86400.0)
-            tsigma = round((1.0 + 2.0 * age_d) / 7.5, 2)     # km→s at ~7.5 km/s
+            # A4: TLE-age timing uncertainty (along-track drift → timing jitter).
+            tsigma = timing_sigma_s(tca, tle.epoch_utc)
             # B1: swath footprint + AOI coverage fraction, at the sensor's own
             # swath (185 km Landsat / 290 km Sentinel-2 / 20 km Dragonette).
             # For a push-broom, derive the swath from the profile's own FOV rather

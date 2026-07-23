@@ -27,13 +27,13 @@ Evidence, at the precision it was measured
 ------------------------------------------
 * **Pyodide adds no numerical error.** A browser run's live-TLE table was
   reproduced row-for-row in normal Python: max |dTCA| 1.00 s (the table's own
-  rounding), max |d off-nadir| 0.00 deg. [VERIFIED 2026-07-15, independent check]
+  rounding), max |d off-nadir| 0.00 deg — an independent check of the browser run.
 * **Pure-python SGP4 agrees with the C extension to ~1e-5 m, non-growing.** Over
   14 d at 1-min steps x 5 satellites: 81-91% of samples differ, max |dr|
   6.88e-06 m, typical ~1e-8 m, no secular growth, error codes match everywhere.
   Float round-off, ~9 orders below the 0.1 deg reported precision, so pass outputs
   are identical. NOTE: an earlier build claimed "bit-identical / 0.000000 m" —
-  that was FALSE (one instant at epoch printed with %f). [VERIFIED 2026-07-15]
+  that was false (one instant at epoch printed with %f).
 * **The pure-python fallback is complete.** With `wrapper.py` absent, `api.py`
   raises ModuleNotFoundError (subclass of ImportError) and falls back to
   `sgp4.model`, which supplies `sgp4_array`/`SatrecArray` — the exact call
@@ -45,7 +45,7 @@ What differs from the server build — the real list
 --------------------------------------------------
 Cloud, coverage, Tier-3 climatology and .xlsx all WORK. An earlier version of this
 file claimed cloud and coverage were impossible. Both claims were false and are
-corrected here [SESSION 2026-07-15]:
+corrected here:
   * Cloud needs no synchronous seam — `attach_cloud(forecast_json=, ensemble_json=)`
     is the same injection point the offline tests use. The handler awaits js.fetch
     and passes the parsed JSON straight in.

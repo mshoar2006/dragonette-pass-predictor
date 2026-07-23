@@ -1,11 +1,10 @@
-"""The [SIMULATED]-retiring test: our geometry vs independently observed reality.
+"""The test that retires simulation: our geometry vs independently observed reality.
 
 Every other test in this repo checks this code against itself. These check it
 against Landsat-9 and Sentinel-2B acquisitions that actually happened, using the
 operators' own published sensing times and solar geometry.
 
 Fully offline — real captured STAC + Celestrak payloads live in fixtures/.
-[SESSION 2026-07-15]
 """
 import json
 import sys

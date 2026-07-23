@@ -298,7 +298,7 @@ const el=(t,c,txt)=>{const e=document.createElement(t); if(c)e.className=c; if(t
 // AOI names come from an uploaded KMZ (untrusted). passes.py strips markup at
 // the parser, but anything interpolated into innerHTML is escaped here too so
 // the popup can never become an injection sink. Prefer el()/textContent where
-// a node can be built instead. [SESSION 2026-07-15]
+// a node can be built instead.
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const AOI_COLORS=['#22C55E','#38BDF8','#A78BFA','#F5A524','#2DD4BF','#F5566A'];
 const bandColor=off=>{const a=Math.abs(off); return a<=5?'#22C55E':a<=12?'#F5A524':'#F5566A';};
@@ -311,7 +311,7 @@ let map, aoiLayer, aoiPolys={};
 function initMap(){
   // Leaflet loads from a CDN; in the standalone build the SPA scripts can run
   // before it finishes (Pyodide boot delays everything), so retry rather than
-  // silently bail — otherwise the map panel stays blank. [SESSION 2026-07-20]
+  // silently bail — otherwise the map panel stays blank.
   if(typeof L==='undefined'){ setTimeout(initMap, 120); return; }
   if(typeof map!=='undefined' && map) return;      // already initialised
   const dark=L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
@@ -512,7 +512,7 @@ function renderResults(aois){
 }
 /* interactive Plotly timeline — coloured bars per pass, one lane per satellite,
    off-nadir angle above each bar. Matches the report PNG (build_timeline_figure)
-   and the Wyvern-style opportunity charts. [SESSION 2026-07-20] */
+   and the Wyvern-style opportunity charts. */
 const BANDS=[['0–5° near nadir','#22C55E'],['5–12° moderate roll','#F5A524'],['over 12° high roll','#F5566A']];
 const BAR_HALF=0.34;                       // lane half-height a bar occupies
 function renderTimeline(aois){
@@ -529,7 +529,7 @@ function renderTimeline(aois){
   if(!SATS.length) SATS=[...present].sort();
   const yOf={}; SATS.forEach((s,i)=>yOf[s]=i);          // 0 = top lane (y-axis reversed)
   // Height scales with lane count so a 10-satellite combined view isn't cramped and
-  // the off-nadir labels above the top row have room. [SESSION 2026-07-20]
+  // the off-nadir labels above the top row have room.
   const H=Math.max(300, 30*SATS.length + 120); div.style.height=H+'px';
 
   // one line-segment trace per band draws all its bars; a hidden marker trace at
@@ -599,7 +599,7 @@ async function download(){
 }
 
 /* client-side CSV of the current results — instant, no re-prediction (works in
-   the standalone build too, where re-running is slow). [SESSION 2026-07-20] */
+   the standalone build too, where re-running is slow). */
 function resultsToCSV(aois){
   const esc=v=>{ v=(v==null?'':String(v)); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
   const cloudStr=c=>{ if(!c) return ''; if(c.tier===1&&c.total_pct!=null) return c.total_pct+'% total';

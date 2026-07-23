@@ -2,7 +2,7 @@
 
 Fully offline: real captured STAC + Open-Meteo responses are injected via the
 `search_json`/`hindcast_json` seams, mirroring the `http_get` pattern in
-passes.py. No network. [SESSION 2026-07-15]
+passes.py. No network.
 """
 import json
 import sys
@@ -56,8 +56,8 @@ def test_scenes_without_observed_cloud_are_dropped():
 
 def test_lead_beyond_provider_cap_is_rejected():
     """Open-Meteo serves forecasts issued at most 7 days ahead; day 8+ returns an
-    empty series. Asking for more must fail loudly, not silently score nothing.
-    [VERIFIED 2026-07-15 against the live API.]"""
+    empty series. Asking for more must fail loudly, not silently score nothing —
+    checked against the live API."""
     with pytest.raises(ValueError):
         H.fetch_hindcast(*SITEA, START, END, leads=(8,), hindcast_json=None)
     with pytest.raises(ValueError):

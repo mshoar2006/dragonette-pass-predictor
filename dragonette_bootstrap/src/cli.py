@@ -53,7 +53,7 @@ def main() -> int:
     a = ap.parse_args()
 
     # Validate everything cheap before doing minutes of propagation, and fail
-    # with a message rather than a traceback. [SESSION 2026-07-15]
+    # with a message rather than a traceback.
     try:
         profile = P.get_profile(a.sensor)        # raises ValueError on an unknown key
         start = P.parse_start_utc(a.start)          # converts an offset, never relabels it
@@ -82,7 +82,7 @@ def main() -> int:
 
     # R8: one prediction per (KMZ, polygon); R7 safety applies to each KMZ.
     # Both branches need the same R7 handling — --all-polygons used to escape it
-    # and traceback instead. [SESSION 2026-07-15]
+    # and traceback instead.
     preds = []
     for path in a.kmz:
         kmz_bytes = Path(path).read_bytes()

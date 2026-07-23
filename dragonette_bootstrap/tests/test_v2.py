@@ -79,8 +79,7 @@ def _named_kmz(raw_name):
 
 def test_cdata_wrapped_name_is_stripped_of_markup():
     """Google Earth writes names in CDATA, so `<![CDATA[<img onerror=...>]]>`
-    survives a bare <name> scrape. It reached the SPA's popup innerHTML.
-    [SESSION 2026-07-15]"""
+    survives a bare <name> scrape. It reached the SPA's popup innerHTML."""
     data = _named_kmz("<![CDATA[<img src=x onerror=alert(1)>]]>")
     name = P.list_polygons(data)[0]
     assert "<" not in name and ">" not in name
@@ -106,7 +105,7 @@ def test_ordinary_names_survive_sanitisation_unchanged():
 def test_formula_like_aoi_name_is_not_a_live_formula_in_xlsx(tmp_path):
     """openpyxl infers a leading '=' as a formula, so a polygon named
     `=cmd|'/c calc'!A1` would ship a live DDE payload in a workbook DEVELOPMENT.md
-    says is circulated to research teams. [SESSION 2026-07-15]"""
+    says is circulated to research teams."""
     from openpyxl import load_workbook
     payload = "=cmd|'/c calc'!A1"
     pred = P.predict(_named_kmz(payload), days=2.0, start_utc=START,
@@ -593,7 +592,7 @@ def test_pushbroom_coverage_follows_the_ground_track(delta_km, expected, alt_km)
     Offsets are expressed relative to the *actual* swath edge rather than a
     hardcoded 92.5 km, because the ground half-swath is not a constant: it follows
     the geodetic altitude. Pinning against 92.5 would only be true at the one
-    altitude where the model's dominant error vanishes. [SESSION 2026-07-16]
+    altitude where the model's dominant error vanishes.
 
     Analytic truth: a 10 km AOI centred `delta` beyond the swath edge E spans
     [E+delta-5, E+delta+5], of which [.., E] is imaged => (5-delta)/10, capped at 1.
@@ -613,7 +612,7 @@ def test_pushbroom_half_swath_tracks_geodetic_altitude():
     geodetic altitude swings ~704.6-731.7 km over one orbit (circular
     geocentrically, but the ellipsoid is not), moving the half-swath 92.5->96.0 km.
     Hardcoding swath_km/2 against an angular gate let the two disagree by 3.5 km
-    and report an AOI wholly inside the FOV as 0% covered. [VERIFIED 2026-07-16]"""
+    and report an AOI wholly inside the FOV as 0% covered."""
     fov = P.LANDSAT.max_off_nadir_deg
     # inverse of the derivation the profile itself uses
     assert P.ground_half_swath_km(705.0, fov) == pytest.approx(92.5, abs=0.1)
@@ -637,7 +636,7 @@ def test_pushbroom_coverage_never_contradicts_the_access_gate(prof_key, lat, lon
     swing, so it only shows where a pass puts the AOI *near the FOV edge* at a
     *high* point of the orbit — high southern latitudes here. A tidy sweep of
     round-number latitudes at one longitude never lands on such a geometry and
-    passes happily against the bug. [VERIFIED 2026-07-16]
+    passes happily against the bug.
 
     The <=2% tolerance is the gate's own geocentric-nadir convention (the validated
     default) meeting the swath's geodetic ground track: bounded at ~0.62 km
@@ -673,8 +672,7 @@ def test_pushbroom_swath_centres_on_the_geodetic_ground_track():
     parametrized test above cannot see this at all), and for a *due-north* track
     their ~2 km separation is almost entirely ALONG-track, which a continuous strip
     does not care about. It is Landsat's 98.2 deg retrograde inclination that turns
-    part of it cross-track — the only component that moves the swath edge.
-    [SESSION 2026-07-16]"""
+    part of it cross-track — the only component that moves the swath edge."""
     import numpy as np
     from sgp4.api import Satrec
     tle = P._parse_3le_file((FIX / "tles_landsat_sentinel2_20260715.txt").read_text(),
@@ -731,7 +729,7 @@ def test_pushbroom_keeps_the_aois_along_track_station():
     straddle the AOI along-track. Pins the docstring's load-bearing claim, which
     `center = ssp` (deleting the behaviour outright) would otherwise satisfy: the
     AOI sits ~1.6-2.0 km along-track of the sub-satellite point at TCA, so this is
-    a live invariant, not dead code. [SESSION 2026-07-16]"""
+    a live invariant, not dead code."""
     import numpy as np
     r_t, v_t, theta = _equatorial_state(705.0)
     ssp, track, cross, _ = _track_frame(r_t, v_t, theta)
@@ -816,10 +814,10 @@ def _cloud_pred():
 
 # The committed sample fixtures were captured when fetch_real_data.py still
 # requested forecast_days=11, so they end 11 d after the window start even though
-# TIER2_MAX_DAYS is 15. The live API does return 16 d (verified 2026-07-15), so
-# this is a fixture limitation, not a provider cap: leads beyond _FIXTURE_DAYS
+# TIER2_MAX_DAYS is 15. The live API does return 16 d (verified against it
+# directly), so this is a fixture limitation, not a provider cap: leads beyond _FIXTURE_DAYS
 # legitimately fall off the end of the series and must read n/a rather than
-# inherit the last available hour. [SESSION 2026-07-15]
+# inherit the last available hour.
 _FIXTURE_DAYS = 11.0
 
 
@@ -854,7 +852,7 @@ def test_cloud_beyond_returned_series_is_na_not_carried_over():
     """A pass past the end of the series a provider actually returned must read
     n/a, with a warning — never a value snapped from the last available hour.
 
-    [SESSION 2026-07-15] `_nearest_hour_index` was an unbounded nearest-neighbour,
+    `_nearest_hour_index` was an unbounded nearest-neighbour,
     so with an 11 d series a day-14 pass silently inherited the last hour of day
     11 — a 73 h stale sample published as that pass's outlook.
     """

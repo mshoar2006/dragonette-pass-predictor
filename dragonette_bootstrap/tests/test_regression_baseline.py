@@ -4,7 +4,7 @@ This is the executable form of the VALIDATION.md 2026-07-14 sign resolution.
 It replays `fixtures/tles_real_20260714.txt` over the Site A 100 km² polygon and
 compares every row of `fixtures/regression_baseline_siteA_*.xlsx`.
 
-Why it exists [SESSION 2026-07-15]: DEVELOPMENT.md hard constraint 1
+Why it exists: DEVELOPMENT.md hard constraint 1
 (`SIGN_FLIP_TO_MATCH_WYVERN = False`) had no test. `test_sign_flips_across_
 ground_track` only asserts east/west passes carry *opposite* signs, which is
 invariant under global negation — flipping the constant passed the whole suite.
@@ -121,7 +121,7 @@ def test_tca_matches_baseline(prediction):
 def test_sun_elevation_matches_baseline(prediction):
     """The baseline's sun elevations agree with the Astronomical Almanac
     low-precision algorithm to ~0.002°, so this pins solar accuracy, not just
-    self-consistency. [SESSION 2026-07-15 — verified against the Almanac.]"""
+    self-consistency — checked against the Almanac."""
     for row in _baseline_rows():
         p = _match(prediction, row)
         assert p.sun_elev_deg == pytest.approx(row["sun"], abs=0.05), (

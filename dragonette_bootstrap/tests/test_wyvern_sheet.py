@@ -18,16 +18,14 @@ path, different TLE.)
 
 Scope constraints, all inherent to the reference rather than to us:
   * Wyvern used ~1-month-old elements. Their DRAG04 21 Jul = -0.1 deg vs our
-    ~-15.5 deg from fresh TLEs is the documented consequence [REPORT] — a
-    stale-TLE effect on their side. DRAG04 is therefore excluded.
+    ~-15.5 deg from fresh TLEs is the documented consequence — a stale-TLE
+    effect on their side. DRAG04 is therefore excluded.
   * Their timestamp is the SCENE END; our TCA lands 18-100 s earlier.
   * Our fixture TLEs have epoch 2026-07-13, so only rows from ~2026-07-14 on can
     be compared — earlier rows would require propagating backwards.
   * Near-nadir rows (|off_nadir| < 6 deg) are ill-conditioned: a sub-minute
     timing difference swings the angle a lot. METHOD.md's validation used
     |off_nadir| >= 6 deg as the 'robust' set; so does this.
-
-[SESSION 2026-07-15]
 """
 import json
 import sys
@@ -45,7 +43,7 @@ SHEET = json.loads((FIX / "wyvern_sheet_siteA_2026-06-24_2026-07-24.json").read_
 START = datetime(2026, 7, 14, 0, 0, tzinfo=timezone.utc)
 ROBUST_OFF_NADIR_DEG = 6.0
 # Wyvern's elements are ~1 month old; DRAG04's divergence is the documented
-# symptom of that, not a disagreement about geometry. [REPORT]
+# symptom of that, not a disagreement about geometry.
 EXCLUDED_SATS = {"DRAG04"}
 
 
@@ -124,7 +122,7 @@ def test_off_nadir_magnitude_matches_wyvern_on_robust_passes(pred):
     silently drops DRAG02 20 Jul, the one row that disagrees. Selecting the rows
     that agree and then reporting agreement is circular, so this test keeps the
     outlier in and asserts the shape instead: a tight majority plus a loose
-    ceiling. [SESSION 2026-07-15]
+    ceiling.
 
     The DRAG02 outlier is almost certainly Wyvern's side: that row also carries
     the largest End-Datetime lag (~100 s vs 18-24 s elsewhere), i.e. their

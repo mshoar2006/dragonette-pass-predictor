@@ -1,8 +1,8 @@
 """Tests for the Tier-3 clear-sky climatology (src/climatology.py).
 
 Tier 3 is what a pass beyond the forecast horizon gets. It shipped as an empty
-[PLACEHOLDER], so every such pass returned n/a; it is now estimated from ~1300-1800
-real Landsat/Sentinel-2 acquisitions per site. Fully offline. [SESSION 2026-07-15]
+placeholder, so every such pass returned n/a; it is now estimated from ~1300-1800
+real Landsat/Sentinel-2 acquisitions per site. Fully offline.
 """
 import json
 import sys
@@ -83,7 +83,7 @@ def test_shipped_climatology_keys_match_real_kmz_polygon_names():
 
 def test_shipped_climatology_threshold_matches_the_code():
     """A clear-sky RATE is defined against a threshold. If CLOUD_OK_THRESHOLD is
-    ever tuned (it is an unconfirmed [SESSION] guess — 'tune w/ the mission contact'), this
+    ever tuned (it is an unconfirmed guess — 'tune w/ the mission contact'), this
     file becomes silently wrong. Fail loudly instead: regenerate with
     `python -m climatology`.
     """

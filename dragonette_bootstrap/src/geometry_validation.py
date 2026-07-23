@@ -1,6 +1,6 @@
 """Independent validation of the propagation/geometry spine (IMPROVEMENTS.md C1).
 
-This is the check that retires the [SIMULATED] grade. Everything else in the
+This is the check that retires the simulated grade. Everything else in the
 repo validates this code against *itself*: the regression baseline is
 self-generated, and the unit tests assert self-consistency (a rotation that
 inverts, a norm that is preserved). Nothing compared a predicted pass against an
@@ -37,7 +37,7 @@ within ~1 day of the element epoch or the drift swamps the signal. The committed
 fixtures satisfy this by construction; `MAX_TLE_AGE_DAYS` enforces it.
 
 Network is injected (`search_json`) following the passes.py `http_get` pattern,
-so tests run fully offline. [SESSION 2026-07-15]
+so tests run fully offline.
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ from sgp4.api import Satrec
 
 import passes as P
 
-# NORAD IDs [VERIFIED 2026-07-15 against the live Celestrak `resource` group].
+# NORAD IDs checked against the live Celestrak `resource` group.
 EO_SATELLITES: dict[str, int] = {
     "LANDSAT8": 39084,
     "LANDSAT9": 49260,
@@ -72,7 +72,7 @@ PLATFORM_TO_SAT: dict[str, str] = {
 
 # Beyond this the SGP4 along-track drift (~1-3 km/day => ~0.15-0.4 s/day) starts
 # to dominate the quantity being measured, and a "pass" becomes a test of TLE age
-# rather than of our geometry. [SESSION 2026-07-15]
+# rather than of our geometry.
 MAX_TLE_AGE_DAYS = 2.0
 
 SEARCH_HALF_WINDOW_S = 20 * 60.0     # bracket to hunt the closest approach in

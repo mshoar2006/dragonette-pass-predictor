@@ -2,7 +2,7 @@
 
 Tier 3 is the >15 day cloud tier: beyond any forecast horizon, all we can honestly
 offer is "historically, how often is this site clear at Dragonette's overpass?".
-`sites_climatology.json` shipped as an empty [PLACEHOLDER] awaiting a VG26003
+`sites_climatology.json` shipped as an empty placeholder awaiting a VG26003
 analysis from Wyvern, so every pass beyond 15 days returned n/a.
 
 It does not need to wait. Landsat 8/9 and Sentinel-2A/B/C have overflown these
@@ -10,8 +10,8 @@ sites mid-morning for a decade and published an observed cloud percentage for
 every scene — ~110 observations per site per month over 2016-2025. That is the
 "VG26003-style clr%" C3 specifies, and it is free.
 
-Why observed scenes rather than ERA5 [VERIFIED 2026-07-15]
-----------------------------------------------------------
+Why observed scenes rather than ERA5
+-------------------------------------
 Open-Meteo's ERA5 archive can also produce this, and is denser (any hour, any
 site). But measured against the scene archive at Site A over 2016-2025, restricted
 to 9-11 h local solar, ERA5 is **systematically ~6 pp pessimistic** (mean -5.9 pp,
@@ -34,7 +34,7 @@ tells you how cloudy, the threshold decides how cloudy is "too cloudy".
 Caveat: `eo:cloud_cover` is a whole-scene statistic (S2 tile ~110x110 km) against
 AOIs of 2.5 ha-100 km2, so this is a *regional* base rate, not per-paddock.
 Sharpening it needs the scene cloud mask clipped to the polygon (S2 SCL /
-Landsat QA_PIXEL). [SESSION 2026-07-15]
+Landsat QA_PIXEL).
 """
 from __future__ import annotations
 
@@ -112,12 +112,12 @@ def build(sites: dict[str, tuple[float, float]], threshold: float,
     offline from already-fetched scenes.
     """
     blob: dict = {
-        "_note": ("[SESSION 2026-07-15] Per-site monthly clear-sky rate (%), Tier-3 base "
+        "_note": ("Per-site monthly clear-sky rate (%), Tier-3 base "
                   "rate (R6/CLOUD.md). Key = AOI polygon name exactly as it appears in the "
                   "KMZ; inner key = 3-letter month. Regenerate with "
                   "`python -m climatology` (needs network). Months with fewer than "
                   f"{MIN_SCENES_PER_MONTH} observations are omitted -> lookup returns n/a."),
-        "_provenance": ("[VERIFIED 2026-07-15] Derived from observed Landsat 8/9 + "
+        "_provenance": ("Derived from observed Landsat 8/9 + "
                         "Sentinel-2A/B/C acquisitions over each AOI centroid "
                         f"({start_year}-{end_year}), via the Element84 Earth Search STAC "
                         "catalogue; rate = fraction of scenes with eo:cloud_cover below "

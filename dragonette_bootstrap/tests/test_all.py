@@ -115,7 +115,7 @@ def test_sun_azimuth_hemisphere_sense_at_solar_noon():
     """At solar noon the sun is due south seen from the northern hemisphere and
     due north from the southern. Pins the azimuth reference direction.
 
-    [SESSION 2026-07-15] The previous model computed azimuth from South but
+    The previous model computed azimuth from South but
     returned it as if measured from North, reflecting every value about the N–S
     axis: it put the noon sun at 3.1° (due N) for lat +40 and 175.6° (due S) for
     Site A — both exactly backwards.
@@ -132,7 +132,7 @@ def test_sun_azimuth_hemisphere_sense_at_solar_noon():
 def test_sun_azimuth_am_pm_branch_at_high_longitude():
     """The hour angle must be wrapped to ±180° before the AM/PM sense is taken.
 
-    [SESSION 2026-07-15] Site A sits at lon 151.4°, so true solar time and UTC
+    Site A sits at lon 151.4°, so true solar time and UTC
     diverge by ~10 h and the unwrapped hour angle exceeded +180°, inverting the
     branch: 07:00 solar time (morning, sun in the east) was reported at 244°
     (west). Any AOI with |lon| >~ 45° could trigger this.
@@ -287,8 +287,8 @@ def test_fresh_cache_for_one_constellation_is_not_served_for_another(tmp_path):
     """Regression: the TLE cache is a single file shared across sensor profiles.
     A fresh cache full of Dragonette must NOT be served (nor crash with "Cache
     missing") when a different constellation — Landsat / Sentinel-2 — is
-    requested; fetch_tles must fetch the roster actually asked for.
-    [SESSION 2026-07-20 — found switching sensors in the SPA]"""
+    requested; fetch_tles must fetch the roster actually asked for. Found by
+    switching sensors in the SPA."""
     tles = synth_constellation(START)
     cache = tmp_path / "tle_cache.json"
     P._save_cache(cache, tles)                     # a FRESH Dragonette-only cache

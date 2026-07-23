@@ -5,7 +5,6 @@ scenes that genuinely happened, and asserts the profile predicts each one. That 
 the difference between "the config parses" and "the sensor works".
 
 Fully offline — real captured STAC + Celestrak payloads in fixtures/.
-[SESSION 2026-07-15]
 """
 import json
 import sys
@@ -53,8 +52,9 @@ def test_profiles_registered_and_lookupable():
 
 
 def test_verified_specs_are_carried_in_the_profiles():
-    """Specs [VERIFIED 2026-07-15]: Landsat 185 km / 30 m / 705 km (NASA, USGS);
-    Sentinel-2 290 km / 10 m / 786 km / 20.6 deg FOV (ESA Copernicus SentiWiki)."""
+    """Specs checked against published sources: Landsat 185 km / 30 m / 705 km
+    (NASA, USGS); Sentinel-2 290 km / 10 m / 786 km / 20.6 deg FOV (ESA Copernicus
+    SentiWiki)."""
     assert (P.LANDSAT.swath_km, P.LANDSAT.gsd_m) == (185.0, 30.0)
     assert (P.SENTINEL2.swath_km, P.SENTINEL2.gsd_m) == (290.0, 10.0)
     assert P.LANDSAT.satellites == {"LANDSAT8": 39084, "LANDSAT9": 49260}
@@ -86,8 +86,8 @@ def test_non_agile_sensors_have_no_marginal_band():
 
 
 def test_both_landsat_satellites_are_operational():
-    """Landsat-8 and Landsat-9 both operational [VERIFIED 2026-07-20 vs earth-search
-    STAC: L8 has 14,632 L2 scenes in the trailing 30 d, latest 2026-07-10]. An
+    """Landsat-8 and Landsat-9 both operational, checked against earth-search
+    STAC: L8 has 14,632 L2 scenes in the trailing 30 d, latest 2026-07-10. An
     earlier build flagged L8 non-op off a Collection-2 processing-latency gap, which
     was wrong — this pins the correction."""
     assert P.LANDSAT.operational["LANDSAT8"] is True

@@ -17,8 +17,8 @@ timestamp at lead times of 1-7 days, and compare against the scene's own observe
 cloud. That yields error-vs-lead-time curves, and the decision-level question the
 tool actually poses: at the operational threshold, would we have called it right?
 
-The load-bearing subtlety [VERIFIED 2026-07-15]
------------------------------------------------
+The load-bearing subtlety
+--------------------------
 The historical-forecast API's plain `cloud_cover` is NOT a forecast at lead time.
 Measured over 10 days at Site A it is **240/240 hours identical to the ERA5
 reanalysis** — it is the analysis, i.e. the answer sheet. Scoring against it would
@@ -29,12 +29,12 @@ capped at 7 (day 8+ returns an empty series), so Tier 1 (0-5 d) is fully
 measurable, Tier 2 (5-15 d) only over days 5-7, and days 7-15 not at all by this
 route.
 
-Provenance per DEVELOPMENT.md: endpoint behaviour tagged [VERIFIED] was exercised
-against the live APIs on 2026-07-15. Both are keyless. Network access is injected
+Provenance per DEVELOPMENT.md: this endpoint behaviour was exercised against the
+live APIs. Both are keyless. Network access is injected
 (`http_get`/`http_post`) following the `passes.py` `http_get` pattern, so the
 tests run fully offline.
 
-Caveat [SESSION 2026-07-15]: `eo:cloud_cover` is a **whole-scene** statistic — a
+Caveat: `eo:cloud_cover` is a **whole-scene** statistic — a
 Sentinel-2 tile is ~110x110 km and a Landsat scene ~185x180 km, against AOIs of
 2.5 ha-100 km2. It is therefore a noisy proxy for cloud over the AOI itself, and
 biases toward the regional mean. Per-AOI truth needs the scene's own cloud mask
@@ -50,8 +50,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-# Free, keyless, no auth. [VERIFIED 2026-07-15 — /collections lists
-# sentinel-2-l2a and landsat-c2-l2.]
+# Free, keyless, no auth. Checked that /collections lists
+# sentinel-2-l2a and landsat-c2-l2.
 STAC_SEARCH_URL = "https://earth-search.aws.element84.com/v1/search"
 HINDCAST_BASE = "https://historical-forecast-api.open-meteo.com/v1/forecast"
 
@@ -59,7 +59,7 @@ HINDCAST_BASE = "https://historical-forecast-api.open-meteo.com/v1/forecast"
 DEFAULT_COLLECTIONS = ("sentinel-2-l2a", "landsat-c2-l2")
 
 # Open-Meteo serves forecasts issued at most 7 days before the valid time.
-# [VERIFIED 2026-07-15 — previous_day7 returns data; previous_day8/10 do not.]
+# Checked that previous_day7 returns data; previous_day8/10 do not.
 MAX_LEAD_DAYS = 7
 LEADS = tuple(range(1, MAX_LEAD_DAYS + 1))
 
@@ -185,7 +185,7 @@ def pair(scenes: list[Scene], hindcast_json: dict,
 
     A scene outside the returned series, or whose lead value is null, is skipped
     rather than snapped to the nearest available hour — the same failure this
-    project already hit once in `attach_cloud`. [SESSION 2026-07-15]
+    project already hit once in `attach_cloud`.
     """
     out: list[Pairing] = []
     for n in leads:

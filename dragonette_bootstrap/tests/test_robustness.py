@@ -1,7 +1,7 @@
 """Tests for the silent-wrong-answer and operational-risk fixes of 2026-07-15.
 
 Each test here corresponds to a defect that produced a *confidently wrong* result
-or an unhandled traceback rather than an error. Fully offline. [SESSION 2026-07-15]
+or an unhandled traceback rather than an error. Fully offline.
 """
 import math
 import subprocess
@@ -109,7 +109,7 @@ def test_api_accepts_start_and_uses_it(monkeypatch):
     """index.html posts `start`, but no endpoint declared it and FastAPI silently
     drops unknown form fields — so the UI's "Start (UTC)" box was a no-op: a
     planner set a future campaign date and got a window starting *now*, with no
-    error shown. [SESSION 2026-07-15]"""
+    error shown."""
     from fastapi.testclient import TestClient
     import app as A
     monkeypatch.setattr(P, "fetch_tles", lambda *a, **k: (_tles(), []))
@@ -192,7 +192,7 @@ def _square(clat, clon, half):
 def test_antimeridian_polygon_does_not_average_to_the_far_side_of_the_planet():
     """A ring straddling +/-180 used to return lon ~ 0.0 — off by ~19,000 km, in
     the wrong ocean, silently. Every pass, sun angle and cloud lookup was then
-    computed for that point. [SESSION 2026-07-15]"""
+    computed for that point."""
     lon, lat = P._shoelace_centroid([(179.95, -16.9), (-179.95, -16.9),
                                      (-179.95, -17.0), (179.95, -17.0)])
     assert abs(lon) > 179.9, f"centroid must sit on the antimeridian, got {lon}"
@@ -223,8 +223,7 @@ def test_small_polygon_centroid_stays_precise(half, label):
     """The shoelace cross terms are ~lon*lat (~4100 here) while the signal is
     ~1e-4, so the naive form catastrophically cancelled: a 20 m AOI erred 53 m —
     larger than the AOI, 10x the 5.3 m GSD — and a 2 m AOI erred 9.3 km. DEVELOPMENT.md
-    puts real AOIs at 2.5 ha and up, but a single-plot trial site is plausible.
-    [SESSION 2026-07-15]"""
+    puts real AOIs at 2.5 ha and up, but a single-plot trial site is plausible."""
     clat, clon = -20.0, 150.0
     lon, lat = P._shoelace_centroid(_square(clat, clon, half))
     err = math.hypot((lon - clon) * 111320 * math.cos(math.radians(clat)),
@@ -244,8 +243,8 @@ def test_degenerate_ring_falls_back_to_the_vertex_mean():
 # ------------------------------------------------------------ manoeuvre detection
 # The fixture PAIR is the point: DRAG04 manoeuvred between these two real element
 # sets (semi-major +113 m over ~1.1 d while every sibling decayed 6-18 m), so they
-# pin the detector against an actual burn rather than a synthetic one.
-# [VERIFIED 2026-07-15 — see IMPROVEMENTS.md A4-bis.]
+# pin the detector against an actual burn rather than a synthetic one,
+# cross-checked against IMPROVEMENTS.md A4-bis.
 OLD_TLES = str(FIX / "tles_real_20260714.txt")
 NEW_TLES = str(FIX / "tles_real_20260715.txt")
 

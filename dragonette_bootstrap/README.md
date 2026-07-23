@@ -131,19 +131,20 @@ Skill decays with lead time, so the tier is keyed off lead time from window star
 One forecast call + one ensemble call **per AOI** (batched). Degrades gracefully:
 on any failure the cloud columns read `n/a`, a warning is added, and the
 prediction never blocks. Attribution "Weather data by Open-Meteo.com" (CC BY 4.0)
-is written to the Method sheet. Tier-3 climatology is now real [VERIFIED 2026-07-15]
-until the VG26003 clr% values are supplied.
+is written to the Method sheet. Tier-3 climatology is real observed data,
+checked against the live source, until the VG26003 clr% values are supplied.
 
 ## Live validation (blocking release)
 
-Offline tests use synthetic TLEs and `[SIMULATED]` Open-Meteo samples. Before
+Offline tests use synthetic TLEs and simulated Open-Meteo samples. Before
 any output is shared beyond the dev machine, run the one-time live check on a
 networked machine and record the results:
 
     python fetch_real_data.py        # real Celestrak TLEs + real Open-Meteo, compared to reference
 
 A restricted/CI sandbox cannot reach Celestrak/Open-Meteo (network allowlist), so
-this is a developer-machine step. Until it passes, all outputs are `[SIMULATED]`-grade.
+this is a developer-machine step. Until it passes, all outputs are simulated-grade,
+not yet confirmed against live data.
 
 ## Contents
 

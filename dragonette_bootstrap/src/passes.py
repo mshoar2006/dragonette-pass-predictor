@@ -53,16 +53,16 @@ SATELLITES: dict[str, int] = {
 }
 
 # Operational status lives ONLY here so commissioning DRAG05 is a one-line flip.
-# [SESSION 2026-07-14, the mission contact] DRAG05 (NORAD 66694) is NOT yet operational:
+# Per the mission contact, DRAG05 (NORAD 66694) is NOT yet operational:
 # predicted, but presented as non-taskable — badged, kept out of headline counts,
 # and never mixed inline with operational satellites (DEVELOPMENT.md hard constraint 3).
-# [PLACEHOLDER] DRAG05 commissioning date — confirm with Wyvern, then set True.
+# DRAG05 commissioning date is still TBD — confirm with Wyvern, then set True.
 OPERATIONAL: dict[str, bool] = {name: True for name in SATELLITES}
 OPERATIONAL["DRAG05"] = False
 
 
-# Dragonette sensor / quality parameters [LITERATURE: eoPortal EPICHyper /
-# Dragonette; Wyvern data-product guide, 2026]. Used only for advisory
+# Dragonette sensor / quality parameters, per eoPortal EPICHyper / Dragonette
+# and Wyvern's data-product guide. Used only for advisory
 # acquisition-quality metrics (A1) — never as hard access filters (constraint 6).
 GSD_NADIR_M = 5.3            # ground sample distance at nadir, metres
 SWATH_KM = 20.0             # swath width at nadir
@@ -87,7 +87,6 @@ GLINT_CAUTION_DEG = 40.0    # 20–40° = caution
 # That is why min_sun defaults to 0 for them: they acquire the daylit side on
 # their own schedule, so a low-sun pass is a real acquisition. Sun elevation is
 # still reported per pass so the user can judge usability themselves.
-# [SESSION 2026-07-15]
 @dataclass(frozen=True)
 class SensorProfile:
     key: str
@@ -108,7 +107,7 @@ def fov_half_angle_deg(swath_km: float, alt_km: float, re_km: float = 6371.0) ->
     """Look half-angle subtending a given GROUND swath, spherical Earth.
 
     Derived rather than asserted, because NASA publishes Landsat's swath but not
-    its FOV in degrees. Validated three ways for Sentinel-2 [VERIFIED 2026-07-15]:
+    its FOV in degrees. Validated three ways for Sentinel-2:
     this returns 10.43 deg from ESA's stated 290 km / 786 km; ESA separately states
     a 20.6 deg FOV (10.30 deg half); and the max off-nadir measured across 400 real
     S2 acquisitions was 10.46 deg. For Landsat it returns 7.47 deg from NASA's
@@ -125,8 +124,8 @@ def ground_half_swath_km(alt_km: float, fov_half_deg: float,
     look angle passes the limb. Exact inverse of `fov_half_angle_deg`:
     `lambda(eta) = asin((1 + h/Re)·sin eta) − eta`, ground distance `Re·lambda`.
 
-    Why a fixed-FOV push-broom's ground swath is NOT a constant [VERIFIED
-    2026-07-16]: it scales with the spacecraft's *geodetic* altitude, which swings
+    Why a fixed-FOV push-broom's ground swath is NOT a constant: it scales
+    with the spacecraft's *geodetic* altitude, which swings
     **704.6 → 731.7 km** for Landsat-9 over a single orbit — the orbit is circular
     geocentrically, but the ellipsoid it flies over is not. So the true half-swath
     runs 92.48 → 96.04 km against the nominal 92.5.
@@ -136,7 +135,8 @@ def ground_half_swath_km(alt_km: float, fov_half_deg: float,
     constant. Holding `swath_km` fixed let the access gate and the footprint
     disagree by up to 3.5 km, which reported an AOI that was wholly inside the FOV
     as 0% covered. Deriving the swath from the gate makes them agree by
-    construction. [LITERATURE — B1 lambda(eta) relation.]"""
+    construction, per the standard lambda(eta) relation for a fixed-FOV
+    push-broom."""
     e = math.radians(fov_half_deg)
     s = (1.0 + alt_km / re_km) * math.sin(e)
     if s >= 1.0:                     # look direction misses the Earth entirely
@@ -151,16 +151,16 @@ DRAGONETTE = SensorProfile(
     min_sun_elev_deg=20.0, marginal_sun_elev_deg=15.0,
     swath_km=SWATH_KM, gsd_m=GSD_NADIR_M, agile=True,
     note="Agile/taskable: rolls to the AOI. Envelope |off-nadir| <= 20 deg, "
-         "sun >= 20 deg [REPORT — Wyvern sheet max 19.9 deg]. Marginal band "
+         "sun >= 20 deg (the Wyvern sheet tops out at 19.9 deg). Marginal band "
          "20-30 deg / 15-20 deg is a stretch tier, not a Wyvern commitment.")
 
-# NORAD IDs [VERIFIED 2026-07-15 vs the live Celestrak `resource` group].
-# Specs [VERIFIED 2026-07-15]: swath 185 km, 30 m multispectral / 15 m pan,
+# NORAD IDs checked against the live Celestrak `resource` group.
+# Specs: swath 185 km, 30 m multispectral / 15 m pan,
 # 705 km altitude, 16-day repeat, LTDN 10:12 +/- 5 min, inclination 98.2 deg
 # — NASA science.nasa.gov/mission/landsat/oli and USGS usgs.gov/landsat-missions/landsat-9.
-# Both Landsat-8 and Landsat-9 are OPERATIONAL. [VERIFIED 2026-07-20 vs the live
+# Both Landsat-8 and Landsat-9 are OPERATIONAL, confirmed against the live
 # earth-search STAC (landsat-c2-l2): Landsat-8 has 14,632 L2 scenes in the trailing
-# 30 days, latest 2026-07-10, ~3.0M lifetime.] An earlier build flagged L8
+# 30 days, latest 2026-07-10, ~3.0M lifetime. An earlier build flagged L8
 # non-operational off "no scene since 2026-06-30", which was Collection-2 L2
 # processing latency, NOT an outage — corrected here.
 LANDSAT = SensorProfile(
@@ -173,13 +173,13 @@ LANDSAT = SensorProfile(
     swath_km=185.0, gsd_m=30.0, agile=False,
     note="Fixed nadir push-broom — images whatever falls in its FOV on its own "
          "16-day cycle; not taskable. Envelope is the FOV half-angle derived from "
-         "the 185 km swath at 705 km. Both LANDSAT8 and LANDSAT9 operational "
-         "[VERIFIED 2026-07-20 vs earth-search STAC].")
+         "the 185 km swath at 705 km. Both LANDSAT8 and LANDSAT9 operational, "
+         "confirmed against earth-search STAC.")
 
-# Specs [VERIFIED 2026-07-15]: swath 290 km, 20.6 deg FOV, 10/20/60 m GSD,
+# Specs: swath 290 km, 20.6 deg FOV, 10/20/60 m GSD,
 # 786 km mean altitude, LTDN 10:30 MLST, 5-day constellation revisit (10-day per
 # satellite) — ESA Copernicus SentiWiki sentiwiki.copernicus.eu/web/s2-mission.
-# Sentinel-2A is still acquiring [VERIFIED 2026-07-15 — scenes 05-10, 05-30].
+# Sentinel-2A is still acquiring — confirmed via scenes 05-10, 05-30.
 SENTINEL2 = SensorProfile(
     key="sentinel2", display="Sentinel-2 A/B/C (MSI)",
     satellites={"SENTINEL2A": 40697, "SENTINEL2B": 42063, "SENTINEL2C": 60989},
@@ -223,23 +223,23 @@ def combined_roster() -> tuple[dict[str, int], dict[str, bool]]:
 CELESTRAK_URL = "https://celestrak.org/NORAD/elements/gp.php?CATNR={catnr}&FORMAT=TLE"
 DEFAULT_CACHE = Path.home() / ".cache" / "dragonette_tles.json"
 # Celestrak asks clients to identify themselves and blocks generic scripted
-# agents. [SESSION 2026-07-15 — mirrors the UA fetch_real_data.py already sends.]
+# agents; this mirrors the UA fetch_real_data.py already sends.
 CELESTRAK_UA = {"User-Agent": "dragonette-predictor/2.0 (research)"}
 # After a failed fetch, serve the stale cache rather than re-hitting Celestrak,
 # for this long. Celestrak refreshes ~2-hourly and asks for <=2-3 polls/file/day;
 # an un-cooled retry loop across concurrent requests is how a soft throttle
-# becomes an IP ban. [SESSION 2026-07-15]
+# becomes an IP ban.
 FETCH_RETRY_COOLDOWN_S = 15 * 60.0
 # Serialises the fetch+cache-write so N concurrent requests cause 1 fetch, not N.
 _FETCH_LOCK = threading.Lock()
 # A rise in semi-major axis faster than this ⇒ thrust, not drag. Drag can only
 # *lower* a, so any sustained rise is unambiguous; the threshold only has to clear
-# fit noise. [VERIFIED 2026-07-15 over ~1 d of real Celestrak elements: DRAG01/02/
-# 03/05 decayed 6-18 m/day, DRAG04 rose 100 m/day. 30 m/day sits clear of both.]
+# fit noise. Checked over ~1 d of real Celestrak elements: DRAG01/02/
+# 03/05 decayed 6-18 m/day, DRAG04 rose 100 m/day. 30 m/day sits clear of both.
 MANOEUVRE_DA_RISE_KM_PER_DAY = 0.03
 
-# Off-nadir sign convention. [REPORT — corrected 2026-07-14 against Wyvern's
-# actual sheet "Wyvern Simulated Passes … June 24–July 24 2026", Wyvern]
+# Off-nadir sign convention. Corrected against Wyvern's actual sheet
+# ("Wyvern Simulated Passes … June 24–July 24 2026").
 # Wyvern's sign equals the NATURAL right-of-track sense (LOS·(r×v)̂), so NO flip.
 # Verified on 5 robust Site A passes (off-nadir ≥6°, magnitude within ~1°,
 # their "End Datetime" 18–100 s after our TCA): signs match column-for-column.
@@ -284,7 +284,7 @@ class AOI:
 class AmbiguousPolygonError(ValueError):
     """Raised when a KMZ holds >1 polygon and the caller did not disambiguate.
 
-    [SESSION 2026-07-14, the mission contact] SiteA.kmz carries AOI 1, AOI 2 and
+    Per the mission contact, SiteA.kmz carries AOI 1, AOI 2 and
     SITEA_100sqkm; silently taking the first is a known footgun. Callers
     must name a polygon or opt into --all-polygons; carries `.names` so the
     CLI/API can echo the choices.
@@ -302,7 +302,7 @@ class AmbiguousPolygonError(ValueError):
 # claims: a ~50 KB archive whose inner doc.kml inflates to gigabytes (trivial on
 # repetitive XML, ratios ~1000:1) walks the worker straight into an OOM on a
 # single request. Bound the declared size, the expansion ratio, and the member
-# count. [SESSION 2026-07-15]
+# count.
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024        # a real 100 km2 KMZ is a few KB
 MAX_KML_BYTES = 50 * 1024 * 1024           # generous for a hand-drawn mega-polygon
 MAX_COMPRESSION_RATIO = 200.0
@@ -361,7 +361,7 @@ def _clean_placemark_name(raw: str) -> str:
     Note this deliberately does NOT neutralise a leading =/+/-/@ (Excel formula
     injection): that is context-specific and is handled at the xlsx sink by
     `_xlsx_safe`, so a legitimately named polygon keeps its identity here and
-    stays matchable by `polygon_name`. [SESSION 2026-07-15]
+    stays matchable by `polygon_name`.
     """
     s = (raw or "").strip()
     m = _CDATA_RE.match(s)
@@ -405,7 +405,7 @@ def parse_kmz(data: bytes, terrain_alt_m: float = 0.0,
     """Extract the named (or sole) Polygon outer boundary from a KMZ or KML.
 
     Raises AmbiguousPolygonError if the file has >1 polygon and no
-    `polygon_name` is given — never silently takes the first. [SESSION]"""
+    `polygon_name` is given — never silently takes the first."""
     kml = _kml_text(data)
     polys = _polygon_placemarks(kml)
     if not polys:
@@ -453,7 +453,7 @@ def _wrap180(lon: float) -> float:
 def _shoelace_centroid(verts: list[tuple[float, float]]) -> tuple[float, float]:
     """Planar shoelace centroid of a (lon, lat) ring. Returns (lon, lat).
 
-    Two corrections over the naive form [SESSION 2026-07-15]:
+    Two corrections over the naive form:
 
     1. **Longitudes are unwrapped onto a branch centred on the first vertex**
        before summing, and re-wrapped after. Raw lon/lat made a ring straddling
@@ -571,7 +571,7 @@ def nadir_unit_teme(r_teme: np.ndarray, theta: float,
     ellipsoid=True:  WGS84 geodetic nadir (negative ellipsoid normal at the
     sub-satellite point). The two differ by up to ~0.2° at mid-latitudes; the
     geodetic form is the physically correct 'nadir' for an off-nadir/roll angle
-    but shifts values off the geocentric baseline, so it is opt-in. [SESSION]"""
+    but shifts values off the geocentric baseline, so it is opt-in."""
     if not ellipsoid:
         return -r_teme / np.linalg.norm(r_teme)
     r_ecef = teme_to_ecef(r_teme, theta)
@@ -582,7 +582,7 @@ def nadir_unit_teme(r_teme: np.ndarray, theta: float,
 
 def ellipsoid_intersect(p_ecef: np.ndarray, d_hat: np.ndarray) -> np.ndarray | None:
     """First WGS84-ellipsoid intersection of the ray p + t·d (ECEF km), or None
-    if it misses Earth. Analytic (scale to unit sphere). [LITERATURE — B1]"""
+    if it misses Earth. Analytic (scale to unit sphere)."""
     k = np.array([1.0 / _A, 1.0 / _A, 1.0 / _B])
     pk, dk = p_ecef * k, d_hat * k
     a = float(dk @ dk); b = 2.0 * float(pk @ dk); c = float(pk @ pk) - 1.0
@@ -610,7 +610,7 @@ def swath_footprint_lonlat(r_t: np.ndarray, v_t: np.ndarray, theta: float,
 
     Where the swath sits cross-track depends on whether the sensor can roll. This
     is the honest footprint model that IMPROVEMENTS.md's sensor-profile section
-    predicted adding the push-brooms would force. [SESSION 2026-07-16]
+    predicted adding the push-brooms would force.
 
     - `agile=True` (Dragonette): the sensor rolls to the AOI on request, so the
       boresight points at the AOI centroid and the swath is centred there. What
@@ -656,7 +656,7 @@ def swath_footprint_lonlat(r_t: np.ndarray, v_t: np.ndarray, theta: float,
         # geocentric sub-point (Landsat-9, one orbit): they differ by up to
         # 2.1 km, but ~2.07 km of that is ALONG-track, which a continuous strip
         # does not care about; the cross-track component that would actually move
-        # the swath edge peaks at 0.62 km. [SESSION 2026-07-16]
+        # the swath edge peaks at 0.62 km.
         ssp_lat, ssp_lon = ecef_to_geodetic_latlon(sat)
         ssp = geodetic_to_ecef(ssp_lat, ssp_lon, 0.0)
         center = center - float((center - ssp) @ cross) * cross
@@ -712,7 +712,7 @@ def acquisition_geometry(r_t: np.ndarray, v_t: np.ndarray, theta: float,
                          gsd_nadir_m: float = GSD_NADIR_M) -> dict:
     """Advisory acquisition-quality geometry for one pass (A1). All angles in
     degrees; effective GSD in metres. Pure geometry, reuses the state predict()
-    already has. [LITERATURE — standard EO/astro relations.]"""
+    already has, via standard EO/astro relations."""
     up = geodetic_up(aoi_lat, aoi_lon)                       # ECEF local up
     sat_ecef = teme_to_ecef(r_t, theta)
     to_sat = sat_ecef - site_ecef
@@ -735,7 +735,7 @@ def acquisition_geometry(r_t: np.ndarray, v_t: np.ndarray, theta: float,
     glint = math.degrees(math.acos(max(-1.0, min(1.0, cos_glint))))
     # Effective ground sample distance (secant law). `gsd_nadir_m` comes from the
     # sensor profile, so Landsat reports 30 m and Sentinel-2 10 m rather than
-    # Dragonette's 5.3 m. [SESSION 2026-07-15]
+    # Dragonette's 5.3 m.
     # (The old `if sun_el > -90` guard here was dead — elevation is always > -90 —
     # and the parameter `alt_km` was accepted and never read. Both removed.)
     eta = abs(off_nadir_deg) * DEG
@@ -770,7 +770,7 @@ def acquisition_geometry(r_t: np.ndarray, v_t: np.ndarray, theta: float,
 def _quality_badge(off_nadir_mag: float, sun_el: float, glint: float) -> str:
     """Collapse acquisition geometry into good/marginal/poor (A2, advisory).
     Glint only downgrades if the AOI is water/wet — unknown here, so it warns
-    but never forces 'poor' on its own. [SESSION — thresholds to confirm.]"""
+    but never forces 'poor' on its own. Thresholds still to confirm."""
     if sun_el < 15.0:
         return "poor"                       # too dark for optical
     good = off_nadir_mag <= 12.0 and sun_el >= 20.0
@@ -779,7 +779,7 @@ def _quality_badge(off_nadir_mag: float, sun_el: float, glint: float) -> str:
 
 
 # Upper bound on a requested window. Shared by cli.py and app.py so the two
-# surfaces cannot disagree about what is accepted. [SESSION 2026-07-15]
+# surfaces cannot disagree about what is accepted.
 MAX_WINDOW_DAYS = 31.0
 
 
@@ -788,7 +788,7 @@ def parse_start_utc(s: str | None) -> datetime | None:
 
     An offset-aware string is **converted** to UTC; a naive one is assumed UTC.
 
-    [SESSION 2026-07-15] cli.py previously did `fromisoformat(s).replace(
+    cli.py previously did `fromisoformat(s).replace(
     tzinfo=utc)`, which parsed the offset and then overwrote it rather than
     converting: `--start 2026-08-01T00:00:00+10:00` became 00:00Z, a silent 10 h
     shift for exactly the Australia/Brisbane users this tool targets.
@@ -825,10 +825,10 @@ def sun_position_deg(dt: datetime, lat_deg: float, lon_deg: float
     """(elevation°, azimuth° from N clockwise, true-solar-time hours).
 
     Astronomical Almanac low-precision solar position — geometric, no
-    refraction; ~0.01° over 1950–2050. [LITERATURE — U.S. Naval Observatory,
-    Astronomical Almanac, "Low precision formulae for the Sun".]
+    refraction; ~0.01° over 1950–2050. Per the U.S. Naval Observatory's
+    Astronomical Almanac, "Low precision formulae for the Sun".
 
-    Replaces the Spencer/NOAA-approximate series [SESSION 2026-07-15]. That
+    Replaces the Spencer/NOAA-approximate series. That
     series keyed off day-of-year with no year term, so it could not track the
     leap-year cycle: it drifted up to 0.45° in elevation (enough to mis-tier a
     pass against the sun ≥ 20° floor) and disagreed with the validated
@@ -903,8 +903,8 @@ def orbit_change(old: TLE, new: TLE) -> dict | None:
     `manoeuvred` keys off a **rise** in semi-major axis, which is unambiguous:
     atmospheric drag can only lower it, so thrust is the sole explanation. That
     makes the test robust without modelling drag, which varies with altitude and
-    solar activity. [SESSION 2026-07-15 — measured over ~1 day of real Celestrak
-    elements: DRAG01/02/03/05 all decayed 6-18 m, DRAG04 rose 113 m.]
+    solar activity. Measured over ~1 day of real Celestrak
+    elements: DRAG01/02/03/05 all decayed 6-18 m, DRAG04 rose 113 m.
 
     `pos_err_km` / `along_track_s` are the actionable numbers: how badly the OLD
     set would have predicted the NEW set's own epoch — i.e. the error a user
@@ -990,7 +990,6 @@ def fetch_tles(satellites: dict[str, int] = SATELLITES,
     # Without it, a Celestrak outage turns every request into 5 more requests —
     # the classic retry storm that converts a soft throttle into a hard IP ban,
     # which takes the whole tool offline. Celestrak asks for <=2-3 polls/file/day.
-    # [SESSION 2026-07-15]
     if (cache and cache.get("_fail_ts")
             and now - cache["_fail_ts"] < FETCH_RETRY_COOLDOWN_S
             and _cache_covers(cache, satellites)):
@@ -1006,8 +1005,8 @@ def fetch_tles(satellites: dict[str, int] = SATELLITES,
         def http_get(url: str) -> str:            # noqa: E306
             # Celestrak asks clients to identify themselves and blocks generic
             # scripted agents; the default "python-requests/x.y" risks a 403 that
-            # would silently degrade every prediction to stale elements.
-            # [SESSION 2026-07-15 — fetch_real_data.py already sets one.]
+            # would silently degrade every prediction to stale elements —
+            # fetch_real_data.py already sets one.
             r = requests.get(url, headers=CELESTRAK_UA, timeout=20)
             r.raise_for_status()
             return r.text
@@ -1031,8 +1030,8 @@ def fetch_tles(satellites: dict[str, int] = SATELLITES,
                 out[name] = TLE(name, catnr, l1, l2, fetched_at)
             # Compare each fresh set against the one it is about to replace: the
             # cache is the only orbit history we have, so this is the last moment
-            # the comparison is possible. [SESSION 2026-07-15 — this is how the
-            # DRAG04 burn was found; see IMPROVEMENTS.md A4-bis.]
+            # the comparison is possible — this is how the DRAG04 burn was found;
+            # see IMPROVEMENTS.md A4-bis.
             warnings.extend(_manoeuvre_warnings(cache, out))
             _save_cache(cache_path, out)
             return out, warnings
@@ -1073,8 +1072,7 @@ def _load_cache(path: Path) -> dict | None:
 
 def _write_cache_atomic(path: Path, blob: dict) -> None:
     """Write via temp file + os.replace so a concurrent reader never sees a torn
-    file (which `_load_cache` would swallow, triggering another full fetch).
-    [SESSION 2026-07-15]"""
+    file (which `_load_cache` would swallow, triggering another full fetch)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(blob))
@@ -1096,8 +1094,7 @@ def _record_fetch_failure(path: Path) -> None:
     """Stamp the cache with a failure time, preserving any TLEs already in it.
 
     This is what stops an outage becoming a retry storm: subsequent calls see
-    `_fail_ts` and serve the stale cache instead of re-hitting all five URLs.
-    [SESSION 2026-07-15]"""
+    `_fail_ts` and serve the stale cache instead of re-hitting all five URLs."""
     try:
         blob = _load_cache(path) or {}
         blob["_fail_ts"] = time.time()
@@ -1110,7 +1107,7 @@ def _cache_covers(cache: dict, satellites: dict[str, int]) -> bool:
     """True only if the cache holds every requested satellite. The cache is one
     file shared across sensor profiles, so a run that fetched Dragonette leaves it
     'fresh' but without LANDSAT8/9 — the fresh-cache short-circuit must check
-    coverage or it serves (or crashes on) the wrong constellation. [SESSION 2026-07-20]"""
+    coverage or it serves (or crashes on) the wrong constellation."""
     return bool(cache) and all(cache.get(name) for name in satellites)
 
 
@@ -1212,7 +1209,7 @@ def merge_predictions(parts: "list[Prediction]") -> "Prediction":
     """Merge same-AOI predictions from several sensor profiles into one, for the
     combined 'all sensors' view. Concatenates the pass buckets (time-sorted) and
     marks the result sensor='all' so the timeline and JSON build a union roster.
-    Cloud is attached afterwards, on the merged result. [SESSION 2026-07-20]"""
+    Cloud is attached afterwards, on the merged result."""
     base = parts[0]
     by_time = lambda ps: sorted(ps, key=lambda p: p.tca_utc)
     merged = Prediction(
@@ -1308,12 +1305,12 @@ def predict(kmz_bytes: bytes,
 
     nadir_ellipsoid=True measures off-nadir from the WGS84 ellipsoid normal
     instead of geocentric −r̂ (up to ~0.2° difference; physically the correct
-    'nadir' but off the validated geocentric baseline — opt-in). [SESSION]
+    'nadir' but off the validated geocentric baseline — opt-in).
 
     `profile` selects the sensor (a SensorProfile or its key, e.g. "landsat",
     "sentinel2"); it supplies the satellite set, operational map and access
     envelope. Default is DRAGONETTE, and every explicit argument still wins over
-    the profile — so existing callers are unaffected. [SESSION 2026-07-15]"""
+    the profile — so existing callers are unaffected."""
     prof = profile if isinstance(profile, SensorProfile) else get_profile(profile)
     # Profile supplies the defaults; an explicit argument always overrides it.
     max_off_nadir_deg = (prof.max_off_nadir_deg if max_off_nadir_deg is None
@@ -1375,7 +1372,6 @@ def predict(kmz_bytes: bytes,
         if sgp4_errs:
             # Silently dropping these makes a decayed or mis-parsed element set
             # look exactly like a satellite that genuinely had no opportunities.
-            # [SESSION 2026-07-15]
             n_bad = sum(sgp4_errs.values())
             pred.warnings.append(
                 f"{name}: SGP4 returned errors on {n_bad}/{len(eta)} epochs "
@@ -1436,7 +1432,7 @@ def predict(kmz_bytes: bytes,
 
             # A1: advisory acquisition-quality geometry (never gates access).
             # GSD comes from the sensor profile — Landsat 30 m, Sentinel-2 10 m,
-            # Dragonette 5.3 m. [SESSION 2026-07-15]
+            # Dragonette 5.3 m.
             geom = acquisition_geometry(r_t, v_t, theta, site_ecef,
                                         aoi.centroid_lat, aoi.centroid_lon,
                                         eta_signed, sun, sun_az,
@@ -1478,7 +1474,7 @@ def predict(kmz_bytes: bytes,
     # Age is reported over the satellites that could actually contribute, so the
     # staleness warning cannot fire on a DRAG05 that was excluded. `default=None`
     # because an empty TLE set used to raise a bare `max() iterable argument is
-    # empty` instead of returning an empty prediction. [SESSION 2026-07-15]
+    # empty` instead of returning an empty prediction.
     contributing = [t for name, t in tles.items()
                     if op_map.get(name, True) or include_nonoperational]
     max_age = max(((start - t.epoch_utc).total_seconds() / 86400.0
@@ -1503,17 +1499,17 @@ def predict(kmz_bytes: bytes,
 # --------------------------------------------------------------------------
 # Cloud skill decays fast: deterministic to ~day 5, probabilistic (ensemble)
 # 5–10 d, climatology beyond. Tier is keyed off lead time from the window start
-# (== "now" for a default run). [SESSION 2026-07-14]  All endpoint/param facts
-# are [LITERATURE: open-meteo.com docs 2026-07-14] — re-verify before live use.
+# (== "now" for a default run). All endpoint/param facts are per the
+# open-meteo.com docs — re-verify before live use.
 FORECAST_URL = ("https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
                 "&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high"
                 "&forecast_days=16&timezone=UTC")
-# ecmwf_ifs025 = 51 members, 3-hourly, runs to 15 d [VERIFIED open-meteo 2026-07].
+# ecmwf_ifs025 = 51 members, 3-hourly, runs to 15 d — confirmed against open-meteo docs.
 # Nearest-hour lookup snaps a TCA to the nearest 3-h step (≤±90 min) — acceptable.
 ENSEMBLE_URL = ("https://ensemble-api.open-meteo.com/v1/ensemble?latitude={lat}"
                 "&longitude={lon}&hourly=cloud_cover&models=ecmwf_ifs025"
                 "&forecast_days=16&timezone=UTC")
-CLOUD_OK_THRESHOLD = 30.0        # % total cloud counted as "clear". [SESSION] A
+CLOUD_OK_THRESHOLD = 30.0        # % total cloud counted as "clear". A
 # sensible default and USER-ADJUSTABLE at request time (SPA "Cloud threshold"
 # field, CLI --cloud-threshold, API cloud_threshold). Note: Tier-3 climatology is
 # computed against it, so regenerate sites_climatology.json if you change it
@@ -1540,7 +1536,7 @@ class CloudInfo:
     def optical_obstruction(self) -> float | None:
         """A3: cloud weighted for OPTICAL imaging. Opaque low+mid fully block a
         scene; thin high cirrus (weight 0.4) often passes but degrades
-        hyperspectral radiometry. [LITERATURE/GK — weight to confirm.]"""
+        hyperspectral radiometry — weight still to confirm."""
         if self.low is None:
             return None
         return round(min(100.0, self.low + self.mid + 0.4 * self.high), 1)
@@ -1552,7 +1548,7 @@ class CloudInfo:
 
     @property
     def likely_cloudy(self) -> bool:
-        """Visual aid only — never filters passes out. [SESSION]"""
+        """Visual aid only — never filters passes out."""
         if self.tier == 1:
             ob = self.optical_obstruction        # A3: judge on optical obstruction
             if ob is not None:
@@ -1610,7 +1606,7 @@ def _parse_hourly_times(hourly: dict) -> list[datetime]:
 # then silently report cloud from days earlier as if it were that pass's
 # outlook, so refuse any match further than this from the TCA. Both the
 # deterministic and ensemble series are hourly, so a genuine in-range match is
-# always within 30 min. [SESSION 2026-07-15 — see _nearest_hour_index tests.]
+# always within 30 min — see the _nearest_hour_index tests.
 _CLOUD_MAX_SNAP_H = 1.5
 
 
@@ -1636,7 +1632,7 @@ def _series_at(hourly: dict, key: str, idx: int) -> float | None:
 
 
 def _ensemble_member_keys(hourly: dict) -> list[str]:
-    # Control ("cloud_cover") + perturbed members ("cloud_cover_memberNN"). [LITERATURE]
+    # Control ("cloud_cover") + perturbed members ("cloud_cover_memberNN").
     return [k for k in hourly
             if k == "cloud_cover" or k.startswith("cloud_cover_member")]
 
@@ -1723,7 +1719,7 @@ def attach_cloud(pred: Prediction,
         if i is None and tier in (1, 2) and (fc if tier == 1 else ens):
             # The provider returned a shorter series than the tier claims to
             # cover. Report n/a rather than inventing a value from the last
-            # available hour. [SESSION 2026-07-15]
+            # available hour.
             beyond_horizon += 1
             p.cloud = CloudInfo(0, "n/a", threshold=threshold, clim_clear_pct=clim_pct)
             continue
@@ -1731,7 +1727,7 @@ def attach_cloud(pred: Prediction,
             h = fc["hourly"]
             total = _series_at(h, "cloud_cover", i)
             # B3: honest ± band — deterministic cloud skill decays with lead time
-            # (~±10% at day 1 growing to ~±25% by day 5). [SESSION — calibrate via C1.]
+            # (~±10% at day 1 growing to ~±25% by day 5); still to calibrate via C1.
             band = None
             if total is not None:
                 halfw = 10.0 + 3.0 * min(lead, TIER1_MAX_DAYS)
@@ -1865,8 +1861,8 @@ def prediction_json(preds: list[Prediction]) -> dict:
 # --------------------------------------------------------------------------
 # Bars are coloured by off-nadir MAGNITUDE band (near-nadir is best for imaging)
 # and labelled with the angle. DRAG05 (non-operational) keeps its band colour
-# but is hatched + row-labelled so it never reads as taskable (constraint 3).
-# [SESSION 2026-07-14, matches Wyvern-style opportunity charts.]
+# but is hatched + row-labelled so it never reads as taskable (constraint 3),
+# matching Wyvern-style opportunity charts.
 _OFFNADIR_BANDS = [                      # (upper bound inclusive, colour, label)
     (5.0,  "#22c55e", "0–5° near nadir"),
     (12.0, "#f59e0b", "5–12° moderate roll"),
@@ -1911,7 +1907,6 @@ def build_timeline_figure(preds: "list[Prediction] | Prediction",
     # global Gcf figure registry, which concurrent requests race on (interleaved
     # or corrupted PNGs, or leaked figures growing without bound). Figure() owns
     # nothing global, so this is thread-safe by construction rather than by luck.
-    # [SESSION 2026-07-15]
     import matplotlib.dates as mdates
     from matplotlib.figure import Figure
 
@@ -1920,7 +1915,7 @@ def build_timeline_figure(preds: "list[Prediction] | Prediction",
 
     # Lanes come from the active sensor profile (or the union for the combined
     # view), not the Dragonette constant, so the chart draws the right
-    # constellation(s) and greys the right non-op sats. [SESSION 2026-07-20]
+    # constellation(s) and greys the right non-op sats.
     key = preds[0].params.get("sensor") if preds else None
     if key == COMBINED_KEY:
         sats_map, operational = combined_roster()
@@ -2026,7 +2021,7 @@ def render_timeline_png(preds: "list[Prediction] | Prediction",
 
     Thread-safe: the figure is an OO `Figure` with its own Agg canvas and is never
     registered with pyplot, so there is nothing global to close and nothing for
-    concurrent requests to race on. [SESSION 2026-07-15]"""
+    concurrent requests to race on."""
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     fig, _ = build_timeline_figure(preds, tz_name)
     FigureCanvasAgg(fig)                      # attach a canvas; no pyplot involved
@@ -2100,8 +2095,8 @@ def _cell(ws, row: int, col: int, value, font):
     KMZ (e.g. `=cmd|'/c calc'!A1`) would land in the workbook as an executable
     DDE payload — in a file DEVELOPMENT.md says is circulated to research teams.
     Forcing the cell to text makes Excel render it verbatim instead. Leading
-    '+', '-' and '@' need no handling: openpyxl already stores those as text
-    [VERIFIED 2026-07-15]. [SESSION 2026-07-15]
+    '+', '-' and '@' need no handling: openpyxl already stores those as text,
+    confirmed by testing.
     """
     c = ws.cell(row, col, value)
     if isinstance(value, str) and value.startswith("="):
@@ -2134,13 +2129,13 @@ def _nonop_note() -> str:
     who = ", ".join(names) if names else "these satellites"
     return (f"{who} NOT yet operational — shown for planning only. NOT a taskable "
             "opportunity and excluded from headline pass counts. Confirm "
-            "commissioning with Wyvern before tasking. [SESSION 2026-07-14]")
+            "commissioning with Wyvern before tasking.")
 
 
 def _combined_method_rows(pred: Prediction) -> list[tuple[str, str]]:
     """Method sheet for the combined 'all sensors' workbook: one that describes
     every constellation and its own native envelope, rather than a single
-    profile. [SESSION 2026-07-20]"""
+    profile."""
     aoi = pred.aoi
     sats, _ = combined_roster()
 
@@ -2176,7 +2171,7 @@ def _method_rows(pred: Prediction) -> list[tuple[str, str]]:
     aoi = pred.aoi
     # Read the sensor off the prediction, never the Dragonette module constants —
     # a Landsat workbook that lists DRAG01-05 and a 20 deg envelope is worse than
-    # no Method sheet at all. [SESSION 2026-07-15]
+    # no Method sheet at all.
     if pred.params.get("sensor") == COMBINED_KEY:
         return _combined_method_rows(pred)
     prof = get_profile(pred.params.get("sensor"))
@@ -2316,7 +2311,6 @@ def write_xlsx_multi(preds: list[Prediction],
         # containing a double quote (e.g. Paddock "North") would otherwise close
         # the string argument and emit a malformed formula, which Excel reports
         # as unreadable content and repairs by discarding the sheet.
-        # [SESSION 2026-07-15]
         _cell(ws, srow + i, 2,
               f"=COUNTIF(A2:A{max(len(std_rows) + 1, 2)},A{srow + i})", base)
     ws.cell(srow + len(preds) + 1, 1, "Total").font = bold

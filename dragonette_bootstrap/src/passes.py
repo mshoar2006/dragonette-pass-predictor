@@ -2116,12 +2116,48 @@ def _fill_pass_sheet(ws, headers: list[str], rows: list, base, bold) -> None:
         ws.column_dimensions[get_column_letter(c)].width = 24
 
 
-def _marginal_note(params: dict) -> str:
-    return (f"Passes at {params['max_off_nadir_deg']:.0f}–"
-            f"{params['marginal_off_nadir_deg']:.0f}° off-nadir or "
-            f"{params['marginal_sun_elev_deg']:.0f}–"
-            f"{params['min_sun_elev_deg']:.0f}° sun elevation — "
-            "outside Wyvern's standard list; confirm feasibility with Wyvern.")
+def _profile_for_params(params: dict) -> "SensorProfile":
+    """The profile a Prediction's params actually describe. A combined 'all
+    sensors' Prediction (merge_predictions) carries Dragonette's own
+    max/marginal values in params — it is the only one of the three that
+    ever populates the marginal bucket — so combined mode reads as Dragonette
+    here, which matches what the marginal/summary sheets actually contain."""
+    sensor_key = params.get("sensor")
+    return DRAGONETTE if sensor_key == COMBINED_KEY else get_profile(sensor_key)
+
+
+def _satellite_names_for(params: dict) -> list[str]:
+    """Satellites to list in the per-satellite summary — the run's own
+    roster, not the Dragonette module constant. A Landsat/Sentinel-2 workbook
+    used to list DRAG01-05 with an all-zero count regardless of what actually
+    ran."""
+    if params.get("sensor") == COMBINED_KEY:
+        sats, _ = combined_roster()
+        return sorted(sats)
+    return sorted(_profile_for_params(params).satellites)
+
+
+def _marginal_note(params: dict) -> str | None:
+    """Text for the Marginal sheet's footer, or None if this run has no real
+    marginal tier to describe.
+
+    Computed as min/max over the two bounds rather than assumed pre-ordered:
+    an off-nadir gate overridden wider than the profile's own marginal bound
+    (P0) used to render an inverted band ("20-10 deg") instead of the correct
+    ascending order. A fixed push-broom's max/marginal bounds are equal by
+    construction (its envelope is the FOV, a hard optical limit — there is no
+    tasking negotiation to stretch), so the note is suppressed for those runs
+    entirely rather than printing a vacuous "7-7 deg" band. Operator wording
+    is profile-aware: "confirm feasibility with Wyvern" only makes sense for
+    an agile, taskable sensor."""
+    off_lo, off_hi = sorted((params["max_off_nadir_deg"], params["marginal_off_nadir_deg"]))
+    sun_lo, sun_hi = sorted((params["marginal_sun_elev_deg"], params["min_sun_elev_deg"]))
+    if off_lo == off_hi and sun_lo == sun_hi:
+        return None
+    who = "Wyvern" if _profile_for_params(params).agile else "the operator"
+    return (f"Passes at {off_lo:.0f}–{off_hi:.0f}° off-nadir or "
+            f"{sun_lo:.0f}–{sun_hi:.0f}° sun elevation — outside the standard "
+            f"list; confirm feasibility with {who}.")
 
 
 def _nonop_note() -> str:
@@ -2242,7 +2278,7 @@ def write_xlsx(pred: Prediction, tz_name: str = "Australia/Brisbane") -> bytes:
     # Per-satellite summary as formulas so it stays live if rows are edited.
     srow = len(pred.passes) + 4
     ws.cell(srow, 1, "Passes per satellite").font = bold
-    sat_names = sorted(SATELLITES)
+    sat_names = _satellite_names_for(pred.params)
     for i, name in enumerate(sat_names, 1):
         ws.cell(srow + i, 1, name).font = base
         ws.cell(srow + i, 2, f'=COUNTIF(A2:A{max(len(pred.passes) + 1, 2)},"{name}")').font = base
@@ -2253,7 +2289,9 @@ def write_xlsx(pred: Prediction, tz_name: str = "Australia/Brisbane") -> bytes:
     ws2 = wb.create_sheet("Marginal - stretch")
     _fill_pass_sheet(ws2, headers,
                      [_pass_row(p, tz, with_cloud=wc) for p in pred.marginal], base, bold)
-    ws2.cell(len(pred.marginal) + 3, 1, _marginal_note(pred.params)).font = base
+    marginal_note = _marginal_note(pred.params)
+    if marginal_note is not None:
+        ws2.cell(len(pred.marginal) + 3, 1, marginal_note).font = base
 
     if pred.nonoperational:                  # R5: separate, badged, uncounted
         wsn = wb.create_sheet("Non-operational")
@@ -2319,7 +2357,9 @@ def write_xlsx_multi(preds: list[Prediction],
 
     ws2 = wb.create_sheet("Marginal - stretch")
     _fill_pass_sheet(ws2, headers, marg_rows, base, bold)
-    ws2.cell(len(marg_rows) + 3, 1, _marginal_note(preds[0].params)).font = base
+    marginal_note = _marginal_note(preds[0].params)
+    if marginal_note is not None:
+        ws2.cell(len(marg_rows) + 3, 1, marginal_note).font = base
 
     if nonop_rows:                           # R5: separate, badged, uncounted
         wsn = wb.create_sheet("Non-operational")

@@ -23,6 +23,7 @@ No web-framework code in this file: it is imported by both cli.py and app.py.
 
 from __future__ import annotations
 
+import copy
 import html
 import io
 import json
@@ -1323,15 +1324,35 @@ def predict(kmz_bytes: bytes,
                              else marginal_sun_elev_deg)
     satellites = prof.satellites if satellites is None else satellites
 
+    warnings: list[str] = []
+    # A fixed push-broom cannot image beyond its own optic: prof.max_off_nadir_deg
+    # is the FOV half-angle, not a policy choice, so a caller-supplied gate wider
+    # than that used to pass straight through unclamped. A row could then land in
+    # the standard/marginal band at an off-nadir the sensor physically cannot
+    # reach, while its footprint/coverage (computed from the real FOV two blocks
+    # down) correctly read 0% AOI coverage — a physically impossible acquisition
+    # carrying a good/marginal badge — seen in a real workbook where 12 of 18
+    # Landsat rows at 10.5-13 deg off-nadir were listed as passes.
+    if not prof.agile:
+        widened = [v for v in (max_off_nadir_deg, marginal_off_nadir_deg)
+                   if v > prof.max_off_nadir_deg]
+        if widened:
+            warnings.append(
+                f"off-nadir gate {max(widened):g}° exceeds {prof.display} FOV "
+                f"half-angle {prof.max_off_nadir_deg:g}°; clamped — a fixed "
+                "push-broom cannot image beyond its swath.")
+            max_off_nadir_deg = min(max_off_nadir_deg, prof.max_off_nadir_deg)
+            marginal_off_nadir_deg = min(marginal_off_nadir_deg, prof.max_off_nadir_deg)
+
     aoi = parse_kmz(kmz_bytes, terrain_alt_m, polygon_name)
     start = (start_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
     end = start + timedelta(days=days)
 
     op_map = operational if operational is not None else prof.operational
 
-    warnings: list[str] = []
     if tles is None:
-        tles, warnings = fetch_tles(satellites, offline_file=offline_tle_file)
+        tles, fetch_warnings = fetch_tles(satellites, offline_file=offline_tle_file)
+        warnings += fetch_warnings
 
     jd0, fr0 = dt_to_jd(start)
     n_steps = int(days * 86400.0 / coarse_step_s) + 1
@@ -2223,6 +2244,33 @@ def _has_cloud(*buckets: list[Pass]) -> bool:
     return any(p.cloud is not None for b in buckets for p in b)
 
 
+NEAR_MISS_QUALITY = "n/a — outside swath"
+NEAR_MISS_SHEET = "Near-miss - outside swath"
+NEAR_MISS_NOTE = ("Geometrically inside the access gate but zero AOI coverage in "
+                  "the sensor's actual swath — not a real acquisition.")
+
+
+def _partition_near_miss(rows: list[Pass], agile: bool) -> tuple[list[Pass], list[Pass]]:
+    """Belt-and-braces for the swath-gate fix (predict() now clamps the gate to
+    the optic for non-agile sensors, but a row can still land at exactly zero
+    AOI coverage near the swath edge, or a Prediction can be built by a caller
+    that bypassed predict()'s own clamp). A fixed push-broom row with zero AOI
+    coverage is not a real acquisition, whatever access-filter value let it
+    through — route it out of Passes/Marginal rather than badge it as one."""
+    if agile:
+        return rows, []
+    kept, near_miss = [], []
+    for p in rows:
+        (near_miss if p.coverage_pct == 0.0 else kept).append(p)
+    return kept, near_miss
+
+
+def _near_miss_row(p: Pass, tz, aoi_name: str | None, with_cloud: bool) -> list:
+    nm = copy.copy(p)
+    nm.quality = NEAR_MISS_QUALITY
+    return _pass_row(nm, tz, aoi_name, with_cloud)
+
+
 def write_xlsx(pred: Prediction, tz_name: str = "Australia/Brisbane") -> bytes:
     from zoneinfo import ZoneInfo
     from openpyxl import Workbook
@@ -2235,25 +2283,30 @@ def write_xlsx(pred: Prediction, tz_name: str = "Australia/Brisbane") -> bytes:
     wc = _has_cloud(pred.passes, pred.marginal, pred.nonoperational)
     headers = _pass_headers(tz_name, with_cloud=wc)
 
+    agile = pred.params.get("agile", True)
+    passes, nm_std = _partition_near_miss(pred.passes, agile)
+    marginal, nm_marg = _partition_near_miss(pred.marginal, agile)
+    near_miss = sorted(nm_std + nm_marg, key=lambda p: p.tca_utc)
+
     ws = wb.active; ws.title = "Passes"
     _fill_pass_sheet(ws, headers,
-                     [_pass_row(p, tz, with_cloud=wc) for p in pred.passes], base, bold)
+                     [_pass_row(p, tz, with_cloud=wc) for p in passes], base, bold)
 
     # Per-satellite summary as formulas so it stays live if rows are edited.
-    srow = len(pred.passes) + 4
+    srow = len(passes) + 4
     ws.cell(srow, 1, "Passes per satellite").font = bold
     sat_names = sorted(SATELLITES)
     for i, name in enumerate(sat_names, 1):
         ws.cell(srow + i, 1, name).font = base
-        ws.cell(srow + i, 2, f'=COUNTIF(A2:A{max(len(pred.passes) + 1, 2)},"{name}")').font = base
+        ws.cell(srow + i, 2, f'=COUNTIF(A2:A{max(len(passes) + 1, 2)},"{name}")').font = base
     ws.cell(srow + len(sat_names) + 1, 1, "Total").font = bold
     ws.cell(srow + len(sat_names) + 1, 2,
             f"=SUM(B{srow + 1}:B{srow + len(sat_names)})").font = bold
 
     ws2 = wb.create_sheet("Marginal - stretch")
     _fill_pass_sheet(ws2, headers,
-                     [_pass_row(p, tz, with_cloud=wc) for p in pred.marginal], base, bold)
-    ws2.cell(len(pred.marginal) + 3, 1, _marginal_note(pred.params)).font = base
+                     [_pass_row(p, tz, with_cloud=wc) for p in marginal], base, bold)
+    ws2.cell(len(marginal) + 3, 1, _marginal_note(pred.params)).font = base
 
     if pred.nonoperational:                  # R5: separate, badged, uncounted
         wsn = wb.create_sheet("Non-operational")
@@ -2261,6 +2314,12 @@ def write_xlsx(pred: Prediction, tz_name: str = "Australia/Brisbane") -> bytes:
                          [_pass_row(p, tz, with_cloud=wc) for p in pred.nonoperational],
                          base, bold)
         wsn.cell(len(pred.nonoperational) + 3, 1, _nonop_note()).font = bold
+
+    if near_miss:                             # belt-and-braces, see _partition_near_miss
+        wsm = wb.create_sheet(NEAR_MISS_SHEET)
+        _fill_pass_sheet(wsm, headers,
+                         [_near_miss_row(p, tz, None, wc) for p in near_miss], base, bold)
+        wsm.cell(len(near_miss) + 3, 1, NEAR_MISS_NOTE).font = base
 
     ws3 = wb.create_sheet("Method")
     _write_method_sheet(ws3, _method_rows(pred)
@@ -2294,11 +2353,18 @@ def write_xlsx_multi(preds: list[Prediction],
     wc = any(_has_cloud(pr.passes, pr.marginal, pr.nonoperational) for pr in preds)
     headers = _pass_headers(tz_name, with_aoi=True, with_cloud=wc)
 
-    std_rows, marg_rows, nonop_rows = [], [], []
+    std_rows, marg_rows, nonop_rows, nm_rows = [], [], [], []
+    aoi_counts: dict[str, tuple[int, int]] = {}
     for pr in preds:
-        std_rows += [_pass_row(p, tz, pr.aoi.name, wc) for p in pr.passes]
-        marg_rows += [_pass_row(p, tz, pr.aoi.name, wc) for p in pr.marginal]
+        agile = pr.params.get("agile", True)
+        passes, nm_std = _partition_near_miss(pr.passes, agile)
+        marginal, nm_marg = _partition_near_miss(pr.marginal, agile)
+        std_rows += [_pass_row(p, tz, pr.aoi.name, wc) for p in passes]
+        marg_rows += [_pass_row(p, tz, pr.aoi.name, wc) for p in marginal]
         nonop_rows += [_pass_row(p, tz, pr.aoi.name, wc) for p in pr.nonoperational]
+        nm_rows += [_near_miss_row(p, tz, pr.aoi.name, wc)
+                   for p in sorted(nm_std + nm_marg, key=lambda p: p.tca_utc)]
+        aoi_counts[pr.aoi.name] = (len(passes), len(marginal))
 
     ws = wb.active; ws.title = "Passes"
     _fill_pass_sheet(ws, headers, std_rows, base, bold)
@@ -2326,18 +2392,24 @@ def write_xlsx_multi(preds: list[Prediction],
         _fill_pass_sheet(wsn, headers, nonop_rows, base, bold)
         wsn.cell(len(nonop_rows) + 3, 1, _nonop_note()).font = bold
 
+    if nm_rows:                              # belt-and-braces, see _partition_near_miss
+        wsm = wb.create_sheet(NEAR_MISS_SHEET)
+        _fill_pass_sheet(wsm, headers, nm_rows, base, bold)
+        wsm.cell(len(nm_rows) + 3, 1, NEAR_MISS_NOTE).font = base
+
     ws3 = wb.create_sheet("Method")
     rows: list[tuple[str, str]] = [
         ("Generated (UTC)", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),
         ("AOIs", ", ".join(pr.aoi.name for pr in preds)),
     ]
     for pr in preds:
+        n_std, n_marg = aoi_counts[pr.aoi.name]
         rows.append((f"AOI · {pr.aoi.name}",
                      f"centroid {abs(pr.aoi.centroid_lat):.5f}"
                      f"{'S' if pr.aoi.centroid_lat < 0 else 'N'}, "
                      f"{abs(pr.aoi.centroid_lon):.5f}"
                      f"{'W' if pr.aoi.centroid_lon < 0 else 'E'}; "
-                     f"{len(pr.passes)} standard, {len(pr.marginal)} marginal"))
+                     f"{n_std} standard, {n_marg} marginal"))
     rows += _method_rows(preds[0])[4:]  # shared method notes (skip per-AOI header rows)
     seen_warn: set[str] = set()
     for pr in preds:

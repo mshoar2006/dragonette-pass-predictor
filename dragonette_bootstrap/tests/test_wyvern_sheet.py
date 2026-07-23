@@ -1,8 +1,8 @@
 """Pin the predictor against WYVERN'S OWN SHEET — the external reference.
 
 Until 2026-07-15 this sheet was not in the repo, so the sign resolution it drove
-survived only as prose in METHOD.md / VALIDATION.md, and the only executable pin
-was `test_regression_baseline.py` — which compares this code against a
+survived only as prose notes, and the only executable pin was
+`test_regression_baseline.py` — which compares this code against a
 **self-generated** baseline. That checks reproducibility, not agreement with the
 customer. These tests close that gap: they assert we agree with the numbers
 Wyvern themselves published.
@@ -24,8 +24,8 @@ Scope constraints, all inherent to the reference rather than to us:
   * Our fixture TLEs have epoch 2026-07-13, so only rows from ~2026-07-14 on can
     be compared — earlier rows would require propagating backwards.
   * Near-nadir rows (|off_nadir| < 6 deg) are ill-conditioned: a sub-minute
-    timing difference swings the angle a lot. METHOD.md's validation used
-    |off_nadir| >= 6 deg as the 'robust' set; so does this.
+    timing difference swings the angle a lot, so this test's "robust" set is
+    |off_nadir| >= 6 deg, same as the original manual validation.
 """
 import json
 import sys
@@ -80,8 +80,8 @@ def _match(pred, row, tol_s=300.0):
 
 
 def test_sheet_contains_no_drag05_rows():
-    """Independent support for DEVELOPMENT.md hard constraint 3: Wyvern does not offer
-    DRAG05 as a taskable opportunity either."""
+    """Independent support for DRAG05 being non-operational: Wyvern does not
+    offer it as a taskable opportunity either."""
     assert not [r for r in _rows() if r["sat"] == "DRAG05"]
 
 
@@ -92,7 +92,7 @@ def test_every_comparable_wyvern_pass_is_reproduced(pred):
 
 
 def test_off_nadir_sign_matches_wyvern_on_robust_passes(pred):
-    """THE external pin of DEVELOPMENT.md hard constraint 1.
+    """THE external pin of the off-nadir sign convention.
 
     `test_regression_baseline.py` pins the sign against a self-generated
     artifact; this pins it against Wyvern's own published column. Flipping
@@ -117,9 +117,10 @@ def test_off_nadir_magnitude_matches_wyvern_on_robust_passes(pred):
         DRAG03 07-15  0.9 | DRAG01 07-18  0.5 | DRAG01 07-19  0.8
         DRAG03 07-21  0.7 | DRAG03 07-22  1.2 | DRAG02 07-20  4.5  <- outlier
 
-    METHOD.md reports '5 passes ... magnitude within ~1 deg', but its robust set
-    was defined as |off-nadir| >= 6 AND magnitude already within ~1 deg — which
-    silently drops DRAG02 20 Jul, the one row that disagrees. Selecting the rows
+    The original manual validation reported '5 passes ... magnitude within
+    ~1 deg', but its robust set was defined as |off-nadir| >= 6 AND magnitude
+    already within ~1 deg — which silently drops DRAG02 20 Jul, the one row
+    that disagrees. Selecting the rows
     that agree and then reporting agreement is circular, so this test keeps the
     outlier in and asserts the shape instead: a tight majority plus a loose
     ceiling.
@@ -144,7 +145,7 @@ def test_off_nadir_magnitude_matches_wyvern_on_robust_passes(pred):
 
 
 def test_our_tca_precedes_wyverns_end_datetime_by_18_to_100s(pred):
-    """METHOD.md's interpretation of their column — that it is the scene END, not
+    """The interpretation of their column — that it is the scene END, not
     closest approach — is itself a claim, and this is what makes it testable.
     If it ever fails, the two tools have stopped meaning the same thing by a
     timestamp, which would silently corrupt every comparison built on it."""
@@ -160,9 +161,9 @@ def test_sun_elevation_is_close_to_wyverns(pred):
     """Loose on purpose. Our solar model is pinned to +/-0.03 deg against ESA/USGS
     scene metadata (test_geometry_validation.py) — i.e. against observation — so
     that test, not this one, is the authority on solar accuracy. This only guards
-    against a gross regression. Wyvern's values sit ~1 deg away, matching
-    METHOD.md's '~1 deg' note; on the ESA evidence the residual is more likely
-    theirs than ours.
+    against a gross regression. Wyvern's values sit ~1 deg away, matching the
+    original manual validation's own '~1 deg' note; on the ESA evidence the
+    residual is more likely theirs than ours.
     """
     for r in _comparable():
         ours, _, _ = P.sun_position_deg(r["end_utc"], pred.aoi.centroid_lat,

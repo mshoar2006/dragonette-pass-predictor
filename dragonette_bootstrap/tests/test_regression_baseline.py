@@ -1,13 +1,14 @@
 """Offline regression test against the committed real-TLE baseline.
 
-This is the executable form of the VALIDATION.md 2026-07-14 sign resolution.
-It replays `fixtures/tles_real_20260714.txt` over the Site A 100 km² polygon and
+This is the executable form of the sign resolution against Wyvern's own
+sheet (see also test_wyvern_sheet.py). It replays
+`fixtures/tles_real_20260714.txt` over the Site A 100 km² polygon and
 compares every row of `fixtures/regression_baseline_siteA_*.xlsx`.
 
-Why it exists: DEVELOPMENT.md hard constraint 1
-(`SIGN_FLIP_TO_MATCH_WYVERN = False`) had no test. `test_sign_flips_across_
-ground_track` only asserts east/west passes carry *opposite* signs, which is
-invariant under global negation — flipping the constant passed the whole suite.
+Why it exists: `SIGN_FLIP_TO_MATCH_WYVERN = False` had no test.
+`test_sign_flips_across_ground_track` only asserts east/west passes carry
+*opposite* signs, which is invariant under global negation — flipping the
+constant passed the whole suite.
 The assertion that pins it is `off_nadir_deg == approx(ref)` on the **signed**
 value: a flip moves every row by 2×, far outside tolerance.
 
@@ -89,8 +90,9 @@ def _match(pred, row, tol_s=600.0):
 
 
 def test_sign_convention_constant_is_false():
-    """DEVELOPMENT.md hard constraint 1. Pinned explicitly, mirroring the DRAG05
-    OPERATIONAL guard, so the intent is greppable and not merely implied."""
+    """SIGN_FLIP_TO_MATCH_WYVERN must stay False. Pinned explicitly, mirroring
+    the DRAG05 OPERATIONAL guard, so the intent is greppable and not merely
+    implied."""
     assert P.SIGN_FLIP_TO_MATCH_WYVERN is False
 
 
@@ -101,7 +103,7 @@ def test_every_baseline_pass_is_reproduced(prediction):
 
 
 def test_signed_off_nadir_matches_baseline(prediction):
-    """Pins DEVELOPMENT.md constraint 1. The value is compared **signed** — this is
+    """Pins the sign convention. The value is compared **signed** — this is
     the assertion that fails if SIGN_FLIP_TO_MATCH_WYVERN is ever flipped."""
     for row in _baseline_rows():
         p = _match(prediction, row)

@@ -222,8 +222,8 @@ def test_antimeridian_polygon_survives_the_whole_kmz_path():
 def test_small_polygon_centroid_stays_precise(half, label):
     """The shoelace cross terms are ~lon*lat (~4100 here) while the signal is
     ~1e-4, so the naive form catastrophically cancelled: a 20 m AOI erred 53 m —
-    larger than the AOI, 10x the 5.3 m GSD — and a 2 m AOI erred 9.3 km. DEVELOPMENT.md
-    puts real AOIs at 2.5 ha and up, but a single-plot trial site is plausible."""
+    larger than the AOI, 10x the 5.3 m GSD — and a 2 m AOI erred 9.3 km. Real
+    AOIs run 2.5 ha and up, but a single-plot trial site is plausible."""
     clat, clon = -20.0, 150.0
     lon, lat = P._shoelace_centroid(_square(clat, clon, half))
     err = math.hypot((lon - clon) * 111320 * math.cos(math.radians(clat)),
@@ -243,8 +243,7 @@ def test_degenerate_ring_falls_back_to_the_vertex_mean():
 # ------------------------------------------------------------ manoeuvre detection
 # The fixture PAIR is the point: DRAG04 manoeuvred between these two real element
 # sets (semi-major +113 m over ~1.1 d while every sibling decayed 6-18 m), so they
-# pin the detector against an actual burn rather than a synthetic one,
-# cross-checked against IMPROVEMENTS.md A4-bis.
+# pin the detector against an actual burn rather than a synthetic one.
 OLD_TLES = str(FIX / "tles_real_20260714.txt")
 NEW_TLES = str(FIX / "tles_real_20260715.txt")
 

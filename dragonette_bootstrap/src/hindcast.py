@@ -1,4 +1,4 @@
-"""Cloud-forecast hindcast harness (IMPROVEMENTS.md C1 — validation loop).
+"""Cloud-forecast hindcast harness — a validation loop.
 
 Answers one question with measured numbers rather than assertion: **how well does
 the Open-Meteo cloud forecast this tool relies on actually do over our AOIs?**
@@ -29,7 +29,7 @@ capped at 7 (day 8+ returns an empty series), so Tier 1 (0-5 d) is fully
 measurable, Tier 2 (5-15 d) only over days 5-7, and days 7-15 not at all by this
 route.
 
-Provenance per DEVELOPMENT.md: this endpoint behaviour was exercised against the
+Provenance: this endpoint behaviour was exercised directly against the
 live APIs. Both are keyless. Network access is injected
 (`http_get`/`http_post`) following the `passes.py` `http_get` pattern, so the
 tests run fully offline.

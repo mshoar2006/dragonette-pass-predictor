@@ -12,7 +12,8 @@ polygon supplied as a KMZ. Method matches the validated 2026-07 workflow:
  5. Off-nadir = angle at spacecraft between geocentric nadir and LOS to
     the AOI centroid; sign from orbit normal (LOS.(r x v)^). This natural
     right-of-track sense IS Wyvern's convention, so NO flip is applied
-    (validated against their supplied sheet, July 2026 -- see METHOD.md).
+    (validated against their supplied sheet, July 2026 -- see
+    tests/test_wyvern_sheet.py).
  6. Sun elevation at AOI at TCA: Astronomical Almanac low-precision solar
     position (~0.01 deg), geometric, no refraction.
  7. Filters: standard |off-nadir| <= 20 deg and sun >= 20 deg;
@@ -55,7 +56,7 @@ SATELLITES: dict[str, int] = {
 # Operational status lives ONLY here so commissioning DRAG05 is a one-line flip.
 # Per the mission contact, DRAG05 (NORAD 66694) is NOT yet operational:
 # predicted, but presented as non-taskable — badged, kept out of headline counts,
-# and never mixed inline with operational satellites (DEVELOPMENT.md hard constraint 3).
+# and never mixed inline with operational satellites.
 # DRAG05 commissioning date is still TBD — confirm with Wyvern, then set True.
 OPERATIONAL: dict[str, bool] = {name: True for name in SATELLITES}
 OPERATIONAL["DRAG05"] = False
@@ -70,7 +71,7 @@ GLINT_HIGH_DEG = 20.0       # sun-glint angle below this = high specular risk (w
 GLINT_CAUTION_DEG = 40.0    # 20–40° = caution
 
 # --------------------------------------------------------------------------
-# Sensor profiles — "a second constellation is a config, not a fork" (SPEC.md)
+# Sensor profiles — a second constellation is a config, not a fork
 # --------------------------------------------------------------------------
 # A profile answers a genuinely different question per sensor class:
 #
@@ -243,9 +244,9 @@ MANOEUVRE_DA_RISE_KM_PER_DAY = 0.03
 # Wyvern's sign equals the NATURAL right-of-track sense (LOS·(r×v)̂), so NO flip.
 # Verified on 5 robust Site A passes (off-nadir ≥6°, magnitude within ~1°,
 # their "End Datetime" 18–100 s after our TCA): signs match column-for-column.
-# The prior default True inverted every sign vs Wyvern — see VALIDATION.md
-# "Sign resolution 2026-07-14". Do not change without re-validating against a
-# fresh Wyvern signed sheet.
+# The prior default True inverted every sign vs Wyvern — see
+# tests/test_wyvern_sheet.py::test_off_nadir_sign_matches_wyvern_on_robust_passes.
+# Do not change without re-validating against a fresh Wyvern signed sheet.
 SIGN_FLIP_TO_MATCH_WYVERN = False
 
 # WGS84
@@ -608,15 +609,14 @@ def swath_footprint_lonlat(r_t: np.ndarray, v_t: np.ndarray, theta: float,
     convention) unless `fov_half_deg` is given, in which case it is derived from
     the sensor's FOV at its instantaneous altitude — see below.
 
-    Where the swath sits cross-track depends on whether the sensor can roll. This
-    is the honest footprint model that IMPROVEMENTS.md's sensor-profile section
-    predicted adding the push-brooms would force.
+    Where the swath sits cross-track depends on whether the sensor can roll —
+    the model adding the push-brooms forced.
 
     - `agile=True` (Dragonette): the sensor rolls to the AOI on request, so the
       boresight points at the AOI centroid and the swath is centred there. What
       coverage then measures is "does my AOI fit cross-track" — which is why it
-      reads 1.0 for every AOI narrower than 20 km. Mislabelled, not wrong; see
-      SPEC.md Non-goals.
+      reads 1.0 for every AOI narrower than 20 km. Mislabelled, not wrong: this
+      is by design, not a bug to fix.
     - `agile=False` (Landsat/Sentinel-2): a fixed nadir push-broom images
       whatever falls under it, so the swath is centred on the **ground track**,
       not on the AOI. Centring it on the AOI would report full coverage for an
@@ -1030,8 +1030,7 @@ def fetch_tles(satellites: dict[str, int] = SATELLITES,
                 out[name] = TLE(name, catnr, l1, l2, fetched_at)
             # Compare each fresh set against the one it is about to replace: the
             # cache is the only orbit history we have, so this is the last moment
-            # the comparison is possible — this is how the DRAG04 burn was found;
-            # see IMPROVEMENTS.md A4-bis.
+            # the comparison is possible — this is how the DRAG04 burn was found.
             warnings.extend(_manoeuvre_warnings(cache, out))
             _save_cache(cache_path, out)
             return out, warnings
@@ -1300,8 +1299,8 @@ def predict(kmz_bytes: bytes,
 
     Non-operational satellites (OPERATIONAL[name] is False, e.g. DRAG05) are
     predicted but routed to `pred.nonoperational` — never `passes`/`marginal` —
-    so they are never counted or shown as taskable (R5, DEVELOPMENT.md constraint 3).
-    Set include_nonoperational=False to drop them entirely.
+    so they are never counted or shown as taskable. Set
+    include_nonoperational=False to drop them entirely.
 
     nadir_ellipsoid=True measures off-nadir from the WGS84 ellipsoid normal
     instead of geocentric −r̂ (up to ~0.2° difference; physically the correct
@@ -1495,7 +1494,7 @@ def predict(kmz_bytes: bytes,
 
 
 # --------------------------------------------------------------------------
-# Cloud cover — three-tier scheme (R6; full reference in CLOUD.md)
+# Cloud cover — three-tier scheme
 # --------------------------------------------------------------------------
 # Cloud skill decays fast: deterministic to ~day 5, probabilistic (ensemble)
 # 5–10 d, climatology beyond. Tier is keyed off lead time from the window start
@@ -1560,7 +1559,7 @@ class CloudInfo:
         return False
 
     def xlsx_cells(self) -> list:
-        """Six cells appended after Slant Range, per CLOUD.md."""
+        """Six cells appended after Slant Range."""
         na = "n/a"
         total = f"{self.total:.0f}" if self.total is not None else na
         lmh = (f"{self.low:.0f}/{self.mid:.0f}/{self.high:.0f}"
@@ -2093,10 +2092,9 @@ def _cell(ws, row: int, col: int, value, font):
 
     openpyxl infers a leading '=' as a formula, so an AOI name scraped from a
     KMZ (e.g. `=cmd|'/c calc'!A1`) would land in the workbook as an executable
-    DDE payload — in a file DEVELOPMENT.md says is circulated to research teams.
-    Forcing the cell to text makes Excel render it verbatim instead. Leading
-    '+', '-' and '@' need no handling: openpyxl already stores those as text,
-    confirmed by testing.
+    DDE payload — in a file that gets circulated to research teams. Forcing
+    the cell to text makes Excel render it verbatim instead. Leading '+', '-'
+    and '@' need no handling: openpyxl already stores those as text.
     """
     c = ws.cell(row, col, value)
     if isinstance(value, str) and value.startswith("="):

@@ -112,8 +112,8 @@ def build(sites: dict[str, tuple[float, float]], threshold: float,
     offline from already-fetched scenes.
     """
     blob: dict = {
-        "_note": ("Per-site monthly clear-sky rate (%), Tier-3 base "
-                  "rate (R6/CLOUD.md). Key = AOI polygon name exactly as it appears in the "
+        "_note": ("Per-site monthly clear-sky rate (%), the Tier-3 cloud "
+                  "base rate. Key = AOI polygon name exactly as it appears in the "
                   "KMZ; inner key = 3-letter month. Regenerate with "
                   "`python -m climatology` (needs network). Months with fewer than "
                   f"{MIN_SCENES_PER_MONTH} observations are omitted -> lookup returns n/a."),

@@ -1,4 +1,4 @@
-"""Independent validation of the propagation/geometry spine (IMPROVEMENTS.md C1).
+"""Independent validation of the propagation/geometry spine.
 
 This is the check that retires the simulated grade. Everything else in the
 repo validates this code against *itself*: the regression baseline is

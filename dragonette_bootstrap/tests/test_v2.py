@@ -1,6 +1,6 @@
-"""v2 offline tests (R4–R9). Fully offline: real AOI fixtures + the synthetic
-demo TLE file; no network. Live-sky correctness is a separate checklist
-(VALIDATION.md)."""
+"""v2 offline tests. Fully offline: real AOI fixtures + the synthetic
+demo TLE file; no network. Live-sky correctness is checked separately, by
+test_geometry_validation.py and test_wyvern_sheet.py."""
 import re
 import subprocess
 import sys
@@ -104,8 +104,8 @@ def test_ordinary_names_survive_sanitisation_unchanged():
 
 def test_formula_like_aoi_name_is_not_a_live_formula_in_xlsx(tmp_path):
     """openpyxl infers a leading '=' as a formula, so a polygon named
-    `=cmd|'/c calc'!A1` would ship a live DDE payload in a workbook DEVELOPMENT.md
-    says is circulated to research teams."""
+    `=cmd|'/c calc'!A1` would ship a live DDE payload in a workbook that gets
+    circulated to research teams."""
     from openpyxl import load_workbook
     payload = "=cmd|'/c calc'!A1"
     pred = P.predict(_named_kmz(payload), days=2.0, start_utc=START,
@@ -747,8 +747,8 @@ def test_pushbroom_keeps_the_aois_along_track_station():
 def test_agile_coverage_stays_centred_on_the_aoi():
     """The agile model is unchanged and still deliberately AOI-centred: a rolling
     sensor points at the target, so coverage asks 'does my AOI fit cross-track'.
-    This is the behaviour DEVELOPMENT.md records as mislabelled-not-broken; it is a
-    human's call to rename or re-model, so it is pinned here, not changed."""
+    This is mislabelled, not broken — renaming or re-modelling it is a human's
+    call, so it is pinned here, not changed."""
     r_t, v_t, theta = _equatorial_state(525.0)
     aoi = _aoi_at_cross_track_offset(r_t, v_t, theta, 95.0)
     fp = P.swath_footprint_lonlat(r_t, v_t, theta, aoi, 185.0, agile=True)

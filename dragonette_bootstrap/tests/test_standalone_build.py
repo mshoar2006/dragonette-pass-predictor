@@ -100,8 +100,8 @@ def test_sgp4_vendor_set_covers_the_import_graph(bundle):
 # ------------------------------------------- the R7 violation that got it reverted
 def test_handler_never_guesses_a_polygon(handler_src):
     """The reverted build did `polygon_name=(names[-1] if len(names)>1 else None)`,
-    silently imaging a polygon the user never chose — DEVELOPMENT.md constraint 4 / R7.
-    It must let AmbiguousPolygonError propagate and return the name list, exactly
+    silently imaging a polygon the user never chose. It must let
+    AmbiguousPolygonError propagate and return the name list, exactly
     as app.py does, so the SPA renders its own picker."""
     assert "names[-1]" not in handler_src
     assert "AmbiguousPolygonError" in handler_src
@@ -139,9 +139,9 @@ def test_tier3_climatology_is_wired(handler_src, bundle):
 
 
 def test_manoeuvre_detection_is_wired(handler_src):
-    """Dead in the reverted build while it still printed a confident timing sigma —
-    the number DEVELOPMENT.md records as blind to a burn. Here it diffs against the
-    previous run's TLEs persisted in localStorage."""
+    """Dead in the reverted build while it still printed a confident timing sigma,
+    even though it had no TLE cache to diff a manoeuvre against. Here it diffs
+    against the previous run's TLEs persisted in localStorage."""
     assert "orbit_change" in handler_src
     assert "_manoeuvre_warning" in handler_src
 

@@ -46,6 +46,9 @@ def main() -> int:
                     help="Attach Open-Meteo cloud cover (3-tier; needs network)")
     ap.add_argument("--cloud-threshold", type=float, default=P.CLOUD_OK_THRESHOLD,
                     help="Total-cloud %% counted as clear for Tier-2 P(clear) (default 30)")
+    ap.add_argument("--rain", action="store_true",
+                    help="Attach Open-Meteo GFS daily rain sum/probability, days "
+                         "0-16 (needs network; days 8-16 flagged low-skill outlook)")
     ap.add_argument("--nadir-ellipsoid", action="store_true",
                     help="Measure off-nadir from the WGS84 ellipsoid normal instead of "
                          "geocentric (~0.2 deg difference; off the validated baseline)")
@@ -112,6 +115,10 @@ def main() -> int:
         clim = P.load_climatology(Path(__file__).with_name("sites_climatology.json"))
         for pred in preds:
             P.attach_cloud(pred, threshold=a.cloud_threshold, climatology=clim)
+
+    if a.rain:
+        for pred in preds:
+            P.attach_rain(pred)
 
     default_stem = "campaign" if len(a.kmz) > 1 else Path(a.kmz[0]).stem
     out = Path(a.out or (default_stem + "_passes.xlsx"))

@@ -33,4 +33,5 @@ dragonette_bootstrap/VALIDATION.md
 dragonette_bootstrap/CLOUD.md
 dragonette_bootstrap/*.local.md
 dragonette_bootstrap/fetch_real_data.py
+dragonette_bootstrap/compare_rain_feed.py
 dragonette_bootstrap/src/sites_climatology.json

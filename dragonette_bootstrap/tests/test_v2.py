@@ -1008,7 +1008,7 @@ def test_api_multi_aoi_json(monkeypatch):
                           "all_polygons": "true"})
     assert r.status_code == 200
     body = r.json()
-    assert body["schema_version"] == "2.1" and len(body["aois"]) == 3
+    assert body["schema_version"] == "2.2" and len(body["aois"]) == 3
 
 
 # ---------------------------------------------------------------- R9 (DT contract)
@@ -1032,7 +1032,7 @@ CLOUD_KEYS = {"tier", "label", "total_pct", "low_pct", "mid_pct", "high_pct",
 def test_json_schema_version_and_single_shape():
     pred = _predict(SITEA_KMZ, "SITEA_100sqkm", max_off_nadir_deg=45.0)
     body = P.prediction_json([pred])
-    assert body["schema_version"] == "2.1"
+    assert body["schema_version"] == "2.2"
     assert set(body) == SINGLE_KEYS
     assert set(body["aoi"]) == AOI_KEYS
     assert body["passes"], "need a pass to check row shape"
@@ -1125,5 +1125,5 @@ def test_api_all_polygons_json(monkeypatch):
                           "all_polygons": "true"})
     assert r.status_code == 200
     body = r.json()
-    assert body["schema_version"] == "2.1"
+    assert body["schema_version"] == "2.2"
     assert len(body["aois"]) == 3

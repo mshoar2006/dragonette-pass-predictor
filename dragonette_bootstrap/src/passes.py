@@ -1136,6 +1136,7 @@ class Pass:
     category: str                 # "standard" | "marginal"
     operational: bool = True      # False => satellite not yet commissioned (R5)
     cloud: "CloudInfo | None" = None   # populated by attach_cloud() (R6)
+    rain: "RainInfo | None" = None     # populated by attach_rain() (P3)
     geometry: dict = field(default_factory=dict)  # A1 acquisition-quality metrics
     node: str = ""                # "ascending" | "descending" (A2)
     local_solar_time_h: float | None = None       # at AOI, hours (A2)
@@ -1586,6 +1587,45 @@ CLOUD_COLUMNS = ["Cloud % (total@TCA)", "Cloud low/mid/high %", "P(cloud<thr)",
                  "Cloud spread (min–max %)", "Cloud label", "Hist. clear-sky rate (mon)"]
 
 
+# --------------------------------------------------------------------------
+# Rain — GFS daily precipitation, days 0-16 (P3, stakeholder request)
+# --------------------------------------------------------------------------
+# A separate feed from the cloud tiers above, not a replacement: cloud stays
+# on TIER1_MAX_DAYS/TIER2_MAX_DAYS (deterministic 0-5 d, ensemble P(clear)
+# 5-15 d) untouched. GFS (models=gfs_seamless) is queried once for the full
+# 16 d window because that is the same underlying feed a rain-focused
+# consumer app (e.g. Oz Forecast) reads, just fetched directly rather than
+# screen-scraped -- confirmed against the open-meteo.com docs.
+GFS_DAILY_URL = ("https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+                 "&daily=precipitation_sum,precipitation_probability_max"
+                 "&models=gfs_seamless&forecast_days=16&timezone=UTC")
+# GFS's own skill decays past about a week; days 8-16 are still returned (a
+# stakeholder asked for the full 16 d, not truncated at the point GFS becomes
+# unreliable) but flagged so they are never presented at equal confidence to
+# day 1.
+RAIN_LOW_SKILL_DAYS = 8.0
+
+
+@dataclass
+class RainInfo:
+    rain_sum_mm: float | None = None            # GFS daily precipitation_sum
+    rain_prob_pct: float | None = None          # GFS daily precipitation_probability_max
+    low_skill: bool = False                     # lead >= RAIN_LOW_SKILL_DAYS
+
+    def xlsx_cells(self) -> list:
+        na = "n/a"
+        rs = f"{self.rain_sum_mm:.1f}" if self.rain_sum_mm is not None else na
+        rp = f"{self.rain_prob_pct:.0f}%" if self.rain_prob_pct is not None else na
+        return [rs, rp, "low-skill outlook" if self.low_skill else ""]
+
+    def json(self) -> dict:
+        return {"rain_sum_mm": self.rain_sum_mm, "rain_prob_pct": self.rain_prob_pct,
+                "low_skill": self.low_skill}
+
+
+RAIN_COLUMNS = ["Rain sum (mm)", "Rain prob (%)", "Rain skill"]
+
+
 def _default_cloud_get(url: str) -> str:
     import requests
     r = requests.get(url, timeout=20)
@@ -1769,6 +1809,75 @@ def attach_cloud(pred: Prediction,
     return pred
 
 
+def _daily_rain_index(daily: dict | None) -> dict[str, tuple[float | None, float | None]]:
+    """UTC calendar date -> (rain_sum_mm, rain_prob_pct), from an Open-Meteo
+    `daily` block requested with timezone=UTC (so `time` dates line up
+    exactly with a TCA's own UTC date)."""
+    if not daily:
+        return {}
+    dates = daily.get("time") or []
+    sums = daily.get("precipitation_sum") or []
+    probs = daily.get("precipitation_probability_max") or []
+    out = {}
+    for i, d in enumerate(dates):
+        out[d] = (sums[i] if i < len(sums) else None, probs[i] if i < len(probs) else None)
+    return out
+
+
+def attach_rain(pred: Prediction,
+                http_get: Callable[[str], str] | None = None,
+                daily_json: dict | None = None,
+                now: datetime | None = None) -> Prediction:
+    """Attach RainInfo to every pass in-place (P3). GFS daily precipitation
+    sum + probability, days 0-16, one call per AOI — independent of the cloud
+    tiers (attach_cloud) and of their TIER1/TIER2_MAX_DAYS boundaries, which
+    this does not touch.
+
+    Never raises, never blocks: on any fetch/parse failure every pass gets a
+    RainInfo with n/a fields and a warning is appended, exactly as
+    attach_cloud does. Supply daily_json to run fully offline (tests)."""
+    ref = (now or pred.start_utc).astimezone(timezone.utc)
+    all_passes = pred.passes + pred.marginal + pred.nonoperational
+    if not all_passes:
+        return pred
+    lat, lon = pred.aoi.centroid_lat, pred.aoi.centroid_lon
+
+    daily = daily_json
+    if daily is None:
+        try:
+            daily = json.loads((http_get or _default_cloud_get)(
+                GFS_DAILY_URL.format(lat=lat, lon=lon))).get("daily")
+        except Exception as exc:
+            pred.warnings.append(f"Rain outlook (GFS) unavailable ({exc}); "
+                                 "rain columns show n/a.")
+            daily = None
+
+    by_date = _daily_rain_index(daily)
+    if daily:
+        pred.warnings.append("Rain data by Open-Meteo.com (GFS daily, CC BY 4.0).")
+
+    beyond_horizon = 0
+    for p in all_passes:
+        lead_days = (p.tca_utc - ref).total_seconds() / 86400.0
+        low_skill = lead_days >= RAIN_LOW_SKILL_DAYS
+        key = p.tca_utc.astimezone(timezone.utc).strftime("%Y-%m-%d")
+        vals = by_date.get(key)
+        if vals is None:
+            if daily:
+                beyond_horizon += 1
+            p.rain = RainInfo(low_skill=low_skill)
+            continue
+        rs, rp = vals
+        p.rain = RainInfo(rain_sum_mm=None if rs is None else float(rs),
+                          rain_prob_pct=None if rp is None else float(rp),
+                          low_skill=low_skill)
+    if beyond_horizon:
+        pred.warnings.append(
+            f"{beyond_horizon} pass(es) fall beyond the 16-day GFS rain outlook "
+            "actually returned by Open-Meteo; their rain columns show n/a.")
+    return pred
+
+
 def load_climatology(path: str | Path) -> dict:
     """Load per-site monthly clear-sky rates (R6 Tier 3). Missing/bad => {}."""
     try:
@@ -1780,7 +1889,8 @@ def load_climatology(path: str | Path) -> dict:
 # --------------------------------------------------------------------------
 # JSON contract (digital-twin front-end; R9)
 # --------------------------------------------------------------------------
-SCHEMA_VERSION = "2.1"    # 2.1: added per-AOI "sensor" block (roster + operational)
+SCHEMA_VERSION = "2.2"    # 2.1: added per-AOI "sensor" block (roster + operational)
+                          # 2.2: added per-pass "rain" block (attach_rain, P3)
 
 
 def _pass_json(p: Pass) -> dict:
@@ -1804,6 +1914,8 @@ def _pass_json(p: Pass) -> dict:
     }
     if p.cloud is not None:
         d["cloud"] = p.cloud.json()
+    if p.rain is not None:
+        d["rain"] = p.rain.json()
     return d
 
 
@@ -2065,17 +2177,19 @@ def _quality_cells(p: Pass) -> list:
 
 
 def _pass_headers(tz_name: str, with_aoi: bool = False,
-                  with_cloud: bool = False) -> list[str]:
+                  with_cloud: bool = False, with_rain: bool = False) -> list[str]:
     """Column headers; `Local (tz)` is inserted after the UTC datetime."""
     h = _PASS_HEADERS[:1] + [_PASS_HEADERS[1], f"Local ({tz_name})"] + _PASS_HEADERS[2:]
     h = h + QUALITY_COLUMNS
     if with_cloud:
         h = h + CLOUD_COLUMNS
+    if with_rain:
+        h = h + RAIN_COLUMNS
     return (["AOI"] + h) if with_aoi else h
 
 
 def _pass_row(p: Pass, tz, aoi_name: str | None = None,
-              with_cloud: bool = False) -> list:
+              with_cloud: bool = False, with_rain: bool = False) -> list:
     row = [p.satellite,
            p.tca_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
            p.tca_utc.astimezone(tz).strftime("%Y-%m-%d %H:%M"),
@@ -2085,6 +2199,8 @@ def _pass_row(p: Pass, tz, aoi_name: str | None = None,
     row = row + _quality_cells(p)
     if with_cloud:
         row = row + (p.cloud.xlsx_cells() if p.cloud is not None else ["n/a"] * 6)
+    if with_rain:
+        row = row + (p.rain.xlsx_cells() if p.rain is not None else ["n/a"] * 3)
     return ([aoi_name] + row) if aoi_name is not None else row
 
 
@@ -2223,6 +2339,10 @@ def _has_cloud(*buckets: list[Pass]) -> bool:
     return any(p.cloud is not None for b in buckets for p in b)
 
 
+def _has_rain(*buckets: list[Pass]) -> bool:
+    return any(p.rain is not None for b in buckets for p in b)
+
+
 def write_xlsx(pred: Prediction, tz_name: str = "Australia/Brisbane") -> bytes:
     from zoneinfo import ZoneInfo
     from openpyxl import Workbook
@@ -2233,11 +2353,13 @@ def write_xlsx(pred: Prediction, tz_name: str = "Australia/Brisbane") -> bytes:
     base = Font(name="Arial", size=10)
     bold = Font(name="Arial", size=10, bold=True)
     wc = _has_cloud(pred.passes, pred.marginal, pred.nonoperational)
-    headers = _pass_headers(tz_name, with_cloud=wc)
+    wr = _has_rain(pred.passes, pred.marginal, pred.nonoperational)
+    headers = _pass_headers(tz_name, with_cloud=wc, with_rain=wr)
 
     ws = wb.active; ws.title = "Passes"
     _fill_pass_sheet(ws, headers,
-                     [_pass_row(p, tz, with_cloud=wc) for p in pred.passes], base, bold)
+                     [_pass_row(p, tz, with_cloud=wc, with_rain=wr) for p in pred.passes],
+                     base, bold)
 
     # Per-satellite summary as formulas so it stays live if rows are edited.
     srow = len(pred.passes) + 4
@@ -2252,13 +2374,15 @@ def write_xlsx(pred: Prediction, tz_name: str = "Australia/Brisbane") -> bytes:
 
     ws2 = wb.create_sheet("Marginal - stretch")
     _fill_pass_sheet(ws2, headers,
-                     [_pass_row(p, tz, with_cloud=wc) for p in pred.marginal], base, bold)
+                     [_pass_row(p, tz, with_cloud=wc, with_rain=wr) for p in pred.marginal],
+                     base, bold)
     ws2.cell(len(pred.marginal) + 3, 1, _marginal_note(pred.params)).font = base
 
     if pred.nonoperational:                  # R5: separate, badged, uncounted
         wsn = wb.create_sheet("Non-operational")
         _fill_pass_sheet(wsn, headers,
-                         [_pass_row(p, tz, with_cloud=wc) for p in pred.nonoperational],
+                         [_pass_row(p, tz, with_cloud=wc, with_rain=wr)
+                          for p in pred.nonoperational],
                          base, bold)
         wsn.cell(len(pred.nonoperational) + 3, 1, _nonop_note()).font = bold
 
@@ -2292,13 +2416,14 @@ def write_xlsx_multi(preds: list[Prediction],
     base = Font(name="Arial", size=10)
     bold = Font(name="Arial", size=10, bold=True)
     wc = any(_has_cloud(pr.passes, pr.marginal, pr.nonoperational) for pr in preds)
-    headers = _pass_headers(tz_name, with_aoi=True, with_cloud=wc)
+    wr = any(_has_rain(pr.passes, pr.marginal, pr.nonoperational) for pr in preds)
+    headers = _pass_headers(tz_name, with_aoi=True, with_cloud=wc, with_rain=wr)
 
     std_rows, marg_rows, nonop_rows = [], [], []
     for pr in preds:
-        std_rows += [_pass_row(p, tz, pr.aoi.name, wc) for p in pr.passes]
-        marg_rows += [_pass_row(p, tz, pr.aoi.name, wc) for p in pr.marginal]
-        nonop_rows += [_pass_row(p, tz, pr.aoi.name, wc) for p in pr.nonoperational]
+        std_rows += [_pass_row(p, tz, pr.aoi.name, wc, wr) for p in pr.passes]
+        marg_rows += [_pass_row(p, tz, pr.aoi.name, wc, wr) for p in pr.marginal]
+        nonop_rows += [_pass_row(p, tz, pr.aoi.name, wc, wr) for p in pr.nonoperational]
 
     ws = wb.active; ws.title = "Passes"
     _fill_pass_sheet(ws, headers, std_rows, base, bold)

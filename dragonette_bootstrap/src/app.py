@@ -30,6 +30,12 @@ def _maybe_cloud(preds: list[P.Prediction], cloud: bool, threshold: float) -> No
         for pred in preds:
             P.attach_cloud(pred, threshold=threshold, climatology=_CLIMATOLOGY)
 
+
+def _maybe_rain(preds: list[P.Prediction], rain: bool) -> None:
+    if rain:
+        for pred in preds:
+            P.attach_rain(pred)
+
 app = FastAPI(
     title="Dragonette Pass Predictor",
     description="Wyvern Dragonette (DRAG01–05) imaging opportunities over a KMZ AOI. "
@@ -150,6 +156,8 @@ def predict_xlsx(
     include_nonoperational: bool = Form(True, description="Include DRAG05 (non-op), shown separately"),
     cloud: bool = Form(False, description="Attach Open-Meteo cloud cover (3-tier)"),
     cloud_threshold: float = Form(P.CLOUD_OK_THRESHOLD),
+    rain: bool = Form(False, description="Attach Open-Meteo GFS daily rain sum/"
+                     "probability, days 0-16 (days 8-16 flagged low-skill outlook)"),
     start: str | None = Form(None, description="Window start, ISO-8601. "
                              "An offset is converted to UTC; naive is taken as UTC. "
                              "Default: now."),
@@ -161,6 +169,7 @@ def predict_xlsx(
     preds = _run(kmz, days, alt, tz, max_off_nadir, min_sun, polygon, all_polygons,
                  include_nonoperational, start=start, sensor=sensor)
     _maybe_cloud(preds, cloud, cloud_threshold)
+    _maybe_rain(preds, rain)
     try:
         blob = P.write_xlsx_multi(preds, tz_name=tz)
     except Exception as exc:
@@ -190,6 +199,7 @@ def predict_json(
     include_nonoperational: bool = Form(True),
     cloud: bool = Form(False),
     cloud_threshold: float = Form(P.CLOUD_OK_THRESHOLD),
+    rain: bool = Form(False),
     start: str | None = Form(None, description="Window start, ISO-8601. "
                              "An offset is converted to UTC; naive is taken as UTC. "
                              "Default: now."),
@@ -201,6 +211,7 @@ def predict_json(
     preds = _run(kmz, days, alt, tz, max_off_nadir, min_sun, polygon, all_polygons,
                  include_nonoperational, start=start, sensor=sensor)
     _maybe_cloud(preds, cloud, cloud_threshold)
+    _maybe_rain(preds, rain)
     return P.prediction_json(preds)
 
 
